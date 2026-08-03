@@ -43,6 +43,20 @@ real time.
 - An Anthropic API key for question generation
 - (Optional) A Firebase project for live session state
 
+## Local Setup
+
+```bash
+npm install
+npm run dev
+```
+
+Firebase configuration comes from `.env` — Vite exposes the `VITE_FIREBASE_*`
+variables to the browser at dev and build time. If `.env` is missing, copy
+`.env.example` to `.env` and fill in your Firebase web config values.
+
+Anthropic variables (`ANTHROPIC_API_KEY`, optional `MODEL_NAME`) are added
+separately — they are only used by the Netlify Functions, not the frontend.
+
 ## Setup
 
 ```bash

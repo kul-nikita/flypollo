@@ -1,36 +1,50 @@
-# Flypollo
+# FlyPollo
 
-A live quiz web app for hospital training and education. Presenters create and
-launch quiz questions on `/admin`; participants join on `/join` and answer in
-real time.
+Interactive live learning — run real-time questions with any audience and see
+the results the moment they answer.
 
 ## Stack
 
-- **Frontend:** React 19 + Vite 6 + React Router, served as a static SPA
+- **Frontend:** React 19 + Vite 6, served as a static SPA
 - **Serverless functions:** Netlify Functions (`netlify/functions`) — e.g. an
   Anthropic-powered question generator
 - **Backend services:** Firebase — Firestore for the participant registry and
-  draft question sets, Realtime Database for live session control
+  question sets, Realtime Database for live session control
 - **Hosting:** Netlify (frontend + functions together)
-- **QR codes:** `qrcode` package on the join screen
+- **QR codes:** `qrcode` package, shown to presenters after publishing
 
 ## Project structure
 
 ```
 .
 ├── netlify/
-│   └── functions/          # Serverless functions (API)
-│       ├── generate-question.js
-│       └── generate-mcq.js # Transcript → 10 MCQs via Claude
-├── public/                 # Static assets
+│   └── functions/
+│       ├── generate-question.js   # (legacy, unused)
+│       └── generate-mcq.js        # Transcript → 10 MCQs via Claude
+├── public/
+│   └── favicon.svg
 ├── src/
-│   ├── pages/              # Home, Admin, Join
-│   ├── App.jsx             # Routes: /, /admin, /join
-│   ├── firebase.js         # Firebase init from env vars
+│   ├── config/
+│   │   └── admin.js               # VITE_ADMIN_EMAILS whitelist (env-driven)
+│   ├── components/
+│   │   ├── Logo.jsx               # SVG brand mark
+│   │   ├── Toasts.jsx             # Toast provider + useToast hook
+│   │   └── ConfirmDialog.jsx      # Accessible confirmation dialog
+│   ├── lib/
+│   │   ├── session.js             # Session records, room codes, live-path helpers
+│   │   ├── participant.js         # Participant profile storage & registry
+│   │   └── report.js              # Session-based reports + per-session CSV
+│   ├── pages/
+│   │   ├── Landing.jsx            # Marketing + email entry
+│   │   ├── Entry.jsx              # Email → admin / restore / register flow
+│   │   ├── Dashboard.jsx          # Participant waiting room + quiz
+│   │   └── Admin.jsx              # Presenter console
+│   ├── App.jsx                    # Single-page view state
+│   ├── firebase.js                # Firebase init from env vars
 │   ├── main.jsx
 │   └── index.css
-├── .env.example            # Required env vars (copy to .env)
-├── netlify.toml            # Build + functions + SPA redirects
+├── .env.example                   # Required env vars (copy to .env)
+├── netlify.toml                   # Build + functions + SPA redirects
 ├── index.html
 ├── package.json
 └── vite.config.js
@@ -69,12 +83,25 @@ from the environment; the Vite frontend reads `VITE_FIREBASE_*`. The Claude
 model used by `generate-mcq` can be overridden with `MODEL_NAME` (defaults to
 `claude-opus-4-8`).
 
+### Admin access
+
+Admin access is controlled by the `VITE_ADMIN_EMAILS` environment variable — a
+comma-separated list of emails that may open the Presenter Console. Anyone who
+enters one of those emails sees the Presenter Console; everyone else gets the
+participant flow. There are no passwords and no separate admin route — edit the
+variable in `.env` (or in Netlify's environment settings) and rebuild to grant
+access.
+
+```bash
+VITE_ADMIN_EMAILS=admin1@example.com,admin2@example.com
+```
+
 ### Firestore setup
 
-The `/join` registration flow reads and writes the `participants` collection,
-and the `/admin` flow writes draft question sets to `sessions/{date}`. In the
-Firebase console, create a Firestore database. For development you can start in
-test mode, or lock it down to this app with rules like:
+The registration flow reads and writes the `participants` collection, and the
+presenter console stores each quiz as its own session document under
+`sessions/{sessionId}`. In the Firebase console, create a Firestore database.
+For development you can start in test mode, or lock it down with rules like:
 
 ```
 rules_version = '2';
@@ -89,46 +116,84 @@ service cloud.firestore {
 
 Restrict these rules (auth, domain checks, etc.) before going to production.
 
-## Live sessions
+## Entry flow
 
-The presenter console loads or creates today's question set in Firestore at
-`sessions/{YYYY-MM-DD}` (`status: "draft" | "ready"`, `questions` as an ordered
-array). Once a set is marked ready, the presenter gets a control panel with
-Previous/Next (and ← / → keyboard) controls that drive the live state in
-Realtime Database at `session/live`:
+Entering an email on the landing page routes to:
+
+1. **Admin** — if the email is in `VITE_ADMIN_EMAILS`.
+2. **Returning participant** — if a valid profile exists in localStorage, or a
+   matching profile is found in Firestore (full name confirmation required).
+3. **New participant** — registration form (name, email, institution,
+   designation).
+
+Profiles are keyed by the base64url-encoded email in
+`participants/{encodedEmail}`. No passwords are used.
+
+## Sessions
+
+The admin first creates a **Session** (name, optional description, session
+date) in the Presenter Console. Each session is its own document in Firestore at
+`sessions/{sessionId}`:
+
+```
+sessions/{sessionId}
+  sessionName       string          # e.g. "Cardiology Day 1"
+  description       string          # optional
+  sessionDate       "YYYY-MM-DD"    # metadata only
+  status            "draft" | "published" | "live" | "completed"
+  published         boolean
+  createdAt         ISO timestamp
+  publishedAt       ISO timestamp   # set on publish
+  publishedBy       admin email     # set on publish
+  roomCode          "FP-482913"     # set on publish
+  qrCode            data URL        # set on publish
+  questionCount     number
+  participantCount  number
+  questions         array of { question, options[4], correctIndex }
+```
+
+The workflow is: **Create Session → Upload Transcript → Generate Questions →
+Review → Save Draft → Publish → Live Quiz → Completed.** The session's status is
+shown in the dashboard as a coloured chip. Publishing requires confirmation and
+stores publish metadata (`publishedBy`, `publishedAt`, `roomCode`, `sessionName`,
+`questionCount`, `participantCount`, `status`) on the document.
+
+Live state lives in Realtime Database at `session/live`:
 
 ```
 {
   "questionIndex": number,          // 0-based index into questions
   "status": "idle" | "live" | "ended",
-  "sessionDate": "YYYY-MM-DD"       // same date as the Firestore path
+  "sessionId": string,              // the Firestore session document id
+  "sessionDate": "YYYY-MM-DD",      // kept for legacy compatibility
+  "roomCode": "FP-482913"           // set on publish
 }
 ```
 
-Participants subscribe to `session/live`. When `status` is `idle` they see a
-waiting screen; when `live` the current question and its 4 options are fetched
-from `sessions/{sessionDate}` and rendered as tappable buttons; `ended` shows a
-closing screen.
+Participants subscribe to `session/live`: `idle` shows a waiting room,
+`live` fetches the current question and its 4 options from `sessions/{sessionId}`
+and renders tappable buttons, and `ended` shows a completion screen.
 
 Answers are stored in Firestore at
-`sessions/{date}/answers/{questionIndex}/{participantId}` with shape
+`sessions/{sessionId}/answers/{questionIndex}/{participantId}` with shape
 `{ selectedIndex, timestamp }`. Each participant's answer for a question is
-locked once submitted (and once the presenter advances past the question). The
-presenter console subscribes to the current question's answer doc with
-`onSnapshot` and renders a live per-option bar count.
+locked once submitted. The presenter console subscribes to the current
+question's answer doc with `onSnapshot` and renders a live per-option bar count,
+plus a session-wide participant count.
+
+Legacy sessions created before this change (keyed by date at
+`sessions/{YYYY-MM-DD}`) keep working: the reader resolves `sessionId` when
+present and falls back to the date document. No migration is required and
+existing collections are left untouched.
 
 ## Reports
 
-The presenter console's **Generate report** button pulls all participants,
-sessions' questions, and answers from Firestore for the event's date range
-(editable via From/To inputs), computes each participant's correct-answer count
-per day plus a total, and renders a "FlyPollo — Session Results" table. The
-**Download CSV** button exports the table as `flypollo-results-{from}-{to}.csv`
-(UTF-8 with BOM for spreadsheet compatibility).
-
-The join screen derives today's room code from the session date (e.g.
-`FP-482913`) and renders a QR code that encodes the join URL
-(`${origin}/join`).
+The presenter console's **Reports** section lists every session with its name,
+date, status chip, participant count and average score, plus a per-session
+**Download CSV** button. Each CSV exports `Name, Email, Institution,
+Designation, Correct, Answered, Total, Score %` for the participants who
+answered, saved as `flypollo-results-{session-name}.csv` (UTF-8 with BOM for
+spreadsheet compatibility).
 
 ## Local development
 
@@ -170,24 +235,3 @@ netlify deploy --build
    - Functions directory: `netlify/functions`
 3. Set the environment variables from `.env.example` in **Site settings >
    Environment variables**. Do not commit a real `.env`.
-
-## Calling functions from the frontend
-
-Functions are invoked relative to the site, so the same code works locally and
-in production:
-
-```js
-const res = await fetch("/.netlify/functions/generate-question", {
-  method: "POST",
-  headers: { "Content-Type": "application/json" },
-  body: JSON.stringify({ topic: "infection control" }),
-});
-```
-
-## Routes
-
-| Route    | Purpose                                        |
-| -------- | ---------------------------------------------- |
-| `/`      | Landing page linking to Admin and Join         |
-| `/admin` | Presenter console — generate and run questions |
-| `/join`  | Participant view — join with a room code       |

@@ -1,64 +1,95 @@
 import { collection, getDocs } from "firebase/firestore";
+import { normalizeStatus } from "./session";
 
-export async function generateReport(db, from, to) {
-  const [participantsSnap, sessionsSnap] = await Promise.all([
-    getDocs(collection(db, "participants")),
-    getDocs(collection(db, "sessions")),
-  ]);
+async function readAnswersByQuestion(db, sessionId) {
+  const snap = await getDocs(collection(db, "sessions", sessionId, "answers"));
+  const map = new Map();
+  for (const doc of snap.docs) {
+    const questionIndex = Number(doc.id);
+    if (!Number.isInteger(questionIndex)) continue;
+    map.set(questionIndex, doc.data() || {});
+  }
+  return map;
+}
 
-  const participants = participantsSnap.docs
-    .map((doc) => doc.data())
-    .filter((p) => p.participantId)
-    .map((p) => ({
-      participantId: p.participantId,
-      name: p.name || "Unknown",
-      email: p.email || "",
-      institution: p.institution || "",
-      designation: p.designation || "",
-    }));
-
-  const sessions = sessionsSnap.docs
-    .map((doc) => ({ date: doc.id, ...doc.data() }))
-    .filter((s) => s.date >= from && s.date <= to)
-    .sort((a, b) => a.date.localeCompare(b.date));
-
-  const days = sessions.map((s) => s.date);
-
-  const rows = new Map(
-    participants.map((p) => [p.participantId, { ...p, scores: {}, total: 0 }])
-  );
-
-  for (const session of sessions) {
-    const questions = Array.isArray(session.questions) ? session.questions : [];
-    const answersSnap = await getDocs(
-      collection(db, "sessions", session.date, "answers")
-    );
-    for (const answerDoc of answersSnap.docs) {
-      const questionIndex = Number(answerDoc.id);
-      const correctIndex = questions[questionIndex]?.correctIndex;
-      if (
-        !Number.isInteger(questionIndex) ||
-        !Number.isInteger(correctIndex)
-      ) {
-        continue;
-      }
-      const data = answerDoc.data() || {};
-      for (const [participantId, answer] of Object.entries(data)) {
-        const row = rows.get(participantId);
-        if (!row) continue;
-        if (answer && answer.selectedIndex === correctIndex) {
-          row.scores[session.date] = (row.scores[session.date] || 0) + 1;
-          row.total += 1;
-        }
-      }
+function buildRows(participantProfiles, questions, answers) {
+  const scores = new Map();
+  for (const [questionIndex, data] of answers) {
+    const correctIndex = questions[questionIndex]?.correctIndex;
+    if (!Number.isInteger(correctIndex)) continue;
+    for (const [participantId, answer] of Object.entries(data)) {
+      if (!answer || typeof answer.selectedIndex !== "number") continue;
+      const entry = scores.get(participantId) || { correct: 0, answered: 0 };
+      entry.answered += 1;
+      if (answer.selectedIndex === correctIndex) entry.correct += 1;
+      scores.set(participantId, entry);
     }
   }
 
-  const table = Array.from(rows.values()).sort((a, b) =>
-    a.name.localeCompare(b.name)
+  return Array.from(scores.entries())
+    .map(([participantId, stats]) => {
+      const profile = participantProfiles.get(participantId) || {};
+      return {
+        participantId,
+        name: profile.name || "Unknown",
+        email: profile.email || "",
+        institution: profile.institution || "",
+        designation: profile.designation || "",
+        correct: stats.correct,
+        answered: stats.answered,
+        total: questions.length,
+        scorePct: questions.length
+          ? Math.round((stats.correct / questions.length) * 100)
+          : 0,
+      };
+    })
+    .sort((a, b) => a.name.localeCompare(b.name));
+}
+
+export async function listSessions(db) {
+  const [sessionsSnap, participantsSnap] = await Promise.all([
+    getDocs(collection(db, "sessions")),
+    getDocs(collection(db, "participants")),
+  ]);
+
+  const participantProfiles = new Map(
+    participantsSnap.docs
+      .map((doc) => doc.data())
+      .filter((p) => p.participantId)
+      .map((p) => [p.participantId, p])
   );
 
-  return { days, rows: table };
+  const sessions = [];
+  for (const doc of sessionsSnap.docs) {
+    const data = doc.data() || {};
+    const questions = Array.isArray(data.questions) ? data.questions : [];
+    const answers = await readAnswersByQuestion(db, doc.id);
+    const rows = buildRows(participantProfiles, questions, answers);
+    sessions.push({
+      id: doc.id,
+      sessionName: data.sessionName || doc.id,
+      description: data.description || "",
+      sessionDate: data.sessionDate || doc.id,
+      status: normalizeStatus(data.status),
+      roomCode: data.roomCode || "",
+      questionCount: questions.length,
+      participantCount: rows.length,
+      avgScore: rows.length
+        ? Math.round(
+            rows.reduce((sum, row) => sum + row.scorePct, 0) / rows.length
+          )
+        : 0,
+      publishedAt: data.publishedAt || "",
+      questions,
+      rows,
+    });
+  }
+
+  sessions.sort((a, b) =>
+    (b.publishedAt || b.id).localeCompare(a.publishedAt || a.id)
+  );
+
+  return sessions;
 }
 
 function csvEscape(value) {
@@ -69,17 +100,28 @@ function csvEscape(value) {
   return str;
 }
 
-export function toCsv(days, rows) {
+export function sessionToCsv(session) {
   const lines = [
-    ["Name", "Email", "Institution", "Designation", ...days, "Total"],
-    ...rows.map((row) => [
+    ["Name", "Email", "Institution", "Designation", "Correct", "Answered", "Total", "Score %"],
+    ...session.rows.map((row) => [
       row.name,
       row.email,
       row.institution,
       row.designation,
-      ...days.map((day) => row.scores[day] || 0),
+      row.correct,
+      row.answered,
       row.total,
+      row.scorePct,
     ]),
   ];
   return lines.map((line) => line.map(csvEscape).join(",")).join("\n");
+}
+
+export function csvFilename(session) {
+  const base = (session.sessionName || "session")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 40);
+  return `flypollo-results-${base || session.id}.csv`;
 }

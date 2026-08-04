@@ -1,7 +1,9 @@
-import { doc, getDoc, setDoc } from "firebase/firestore";
+import { collection, doc, getDoc, getDocs, query, setDoc, where } from "firebase/firestore";
 import { db } from "../firebase";
+import { normalizeStatus } from "./session";
 
 const STORAGE_KEY = "flypollo.participant";
+const JOINED_SESSION_KEY = "flypollo.joinedSession";
 const WEEK_MS = 7 * 24 * 60 * 60 * 1000;
 
 export function loadSavedProfile() {
@@ -29,6 +31,61 @@ export function saveProfile(profile) {
 
 export function clearSavedProfile() {
   localStorage.removeItem(STORAGE_KEY);
+}
+
+export function loadJoinedSession() {
+  try {
+    const raw = localStorage.getItem(JOINED_SESSION_KEY);
+    if (!raw) return null;
+    const saved = JSON.parse(raw);
+    if (!saved.sessionId || !saved.roomCode || !saved.sessionName) return null;
+    return saved;
+  } catch {
+    return null;
+  }
+}
+
+export function saveJoinedSession(session) {
+  localStorage.setItem(
+    JOINED_SESSION_KEY,
+    JSON.stringify({
+      sessionId: session.sessionId,
+      roomCode: session.roomCode,
+      sessionName: session.sessionName,
+      joinedAt: Date.now(),
+    })
+  );
+}
+
+export function clearJoinedSession() {
+  localStorage.removeItem(JOINED_SESSION_KEY);
+}
+
+export function clearParticipantData() {
+  clearSavedProfile();
+  clearJoinedSession();
+}
+
+export async function findSessionByRoomCode(roomCode) {
+  let code = String(roomCode || "").trim().toUpperCase();
+  if (!code) return null;
+  if (!code.includes("-") && /^\d+$/.test(code)) {
+    code = `FP-${code}`;
+  }
+  const snap = await getDocs(
+    query(collection(db, "sessions"), where("roomCode", "==", code))
+  );
+  const match = snap.docs.find((docSnap) => {
+    const data = docSnap.data() || {};
+    return normalizeStatus(data.status) !== "draft";
+  });
+  if (!match) return null;
+  const data = match.data() || {};
+  return {
+    sessionId: match.id,
+    roomCode: data.roomCode || code,
+    sessionName: data.sessionName || match.id,
+  };
 }
 
 export function emailToDocId(email) {

@@ -1,5 +1,10 @@
-import { collection, getDocs } from "firebase/firestore";
-import { normalizeStatus } from "./session";
+import {
+  collection,
+  deleteDoc,
+  doc,
+  getDocs,
+} from "firebase/firestore";
+import { normalizeStatus, sessionShareUrl } from "./session";
 
 async function readAnswersByQuestion(db, sessionId) {
   const snap = await getDocs(collection(db, "sessions", sessionId, "answers"));
@@ -72,6 +77,10 @@ export async function listSessions(db) {
       sessionDate: data.sessionDate || doc.id,
       status: normalizeStatus(data.status),
       roomCode: data.roomCode || "",
+      shareUrl:
+        data.shareUrl ||
+        (data.roomCode ? sessionShareUrl(data.roomCode) : ""),
+      qrUrl: data.qrUrl || "",
       questionCount: questions.length,
       participantCount: rows.length,
       avgScore: rows.length
@@ -124,4 +133,129 @@ export function csvFilename(session) {
     .replace(/^-+|-+$/g, "")
     .slice(0, 40);
   return `flypollo-results-${base || session.id}.csv`;
+}
+
+export function sessionsToCsv(sessions) {
+  const lines = [
+    ["Session", "Date", "Status", "Room Code", "Questions", "Participants", "Average Score %", "Published At", "Share Link"],
+    ...sessions.map((s) => [
+      s.sessionName,
+      s.sessionDate,
+      s.status,
+      s.roomCode,
+      s.questionCount,
+      s.participantCount,
+      s.avgScore,
+      s.publishedAt,
+      s.shareUrl,
+    ]),
+  ];
+  return lines.map((line) => line.map(csvEscape).join(",")).join("\n");
+}
+
+export async function listParticipantStats(db) {
+  const [participantsSnap, sessionsSnap] = await Promise.all([
+    getDocs(collection(db, "participants")),
+    getDocs(collection(db, "sessions")),
+  ]);
+
+  const participantProfiles = new Map(
+    participantsSnap.docs
+      .map((doc) => doc.data())
+      .filter((p) => p.participantId)
+      .map((p) => [p.participantId, p])
+  );
+
+  const joined = new Map();
+  for (const sessionDoc of sessionsSnap.docs) {
+    const data = sessionDoc.data() || {};
+    const sessionName = data.sessionName || sessionDoc.id;
+    const answers = await readAnswersByQuestion(db, sessionDoc.id);
+    for (const [participantId, byQuestion] of answers) {
+      const entry = joined.get(participantId) || { sessions: new Set(), last: 0 };
+      entry.sessions.add(sessionName);
+      for (const answer of Object.values(byQuestion)) {
+        if (answer && typeof answer.timestamp === "number" && answer.timestamp > entry.last) {
+          entry.last = answer.timestamp;
+        }
+      }
+      joined.set(participantId, entry);
+    }
+  }
+
+  const rows = [];
+  for (const p of participantProfiles.values()) {
+    const stats = joined.get(p.participantId);
+    rows.push({
+      participantId: p.participantId,
+      name: p.name || "Unknown",
+      email: p.email || "",
+      institution: p.institution || "",
+      designation: p.designation || "",
+      sessionsJoined: stats ? stats.sessions.size : 0,
+      lastActive: stats ? stats.last : 0,
+    });
+  }
+  rows.sort((a, b) => a.name.localeCompare(b.name));
+  return rows;
+}
+
+export async function deleteSession(db, sessionId) {
+  await deleteDoc(doc(db, "sessions", sessionId));
+}
+
+export async function listParticipantSessions(db, participantId) {
+  if (!participantId) return [];
+  const sessionsSnap = await getDocs(collection(db, "sessions"));
+  const results = [];
+  for (const sessionDoc of sessionsSnap.docs) {
+    const data = sessionDoc.data() || {};
+    const questions = Array.isArray(data.questions) ? data.questions : [];
+    const answersSnap = await getDocs(
+      collection(db, "sessions", sessionDoc.id, "answers")
+    );
+    let answered = 0;
+    let correct = 0;
+    let lastActive = 0;
+    let found = false;
+    for (const answerDoc of answersSnap.docs) {
+      const questionIndex = Number(answerDoc.id);
+      const question = questions[questionIndex];
+      const entry = (answerDoc.data() || {})[participantId];
+      if (!entry || typeof entry.selectedIndex !== "number") continue;
+      found = true;
+      answered += 1;
+      if (
+        question &&
+        typeof question.correctIndex === "number" &&
+        entry.selectedIndex === question.correctIndex
+      ) {
+        correct += 1;
+      }
+      if (typeof entry.timestamp === "number" && entry.timestamp > lastActive) {
+        lastActive = entry.timestamp;
+      }
+    }
+    if (!found) continue;
+    results.push({
+      sessionId: sessionDoc.id,
+      sessionName: data.sessionName || sessionDoc.id,
+      sessionDate: data.sessionDate || sessionDoc.id,
+      status: normalizeStatus(data.status),
+      roomCode: data.roomCode || "",
+      questionCount: questions.length,
+      answered,
+      correct,
+      scorePct: questions.length
+        ? Math.round((correct / questions.length) * 100)
+        : 0,
+      lastActive,
+    });
+  }
+  results.sort(
+    (a, b) =>
+      (b.lastActive || 0) - (a.lastActive || 0) ||
+      b.sessionDate.localeCompare(a.sessionDate)
+  );
+  return results;
 }

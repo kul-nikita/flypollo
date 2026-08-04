@@ -41,6 +41,12 @@ export function newRoomCode() {
   return `FP-${number}`;
 }
 
+export const APP_URL = "https://flypollo.netlify.app";
+
+export function sessionShareUrl(roomCode) {
+  return `${APP_URL}?room=${encodeURIComponent(roomCode)}`;
+}
+
 export function sessionDocId(live) {
   if (live && typeof live.sessionId === "string" && live.sessionId) {
     return live.sessionId;
@@ -64,7 +70,8 @@ export function newSessionRecord({ sessionName, description, sessionDate }) {
     publishedAt: "",
     publishedBy: "",
     roomCode: "",
-    qrCode: "",
+    shareUrl: "",
+    qrUrl: "",
     questionCount: 0,
     participantCount: 0,
     questions: [],

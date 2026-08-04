@@ -4,6 +4,7 @@ import { normalizeStatus } from "./session";
 
 const STORAGE_KEY = "flypollo.participant";
 const JOINED_SESSION_KEY = "flypollo.joinedSession";
+const ADMIN_EMAIL_KEY = "flypollo.adminEmail";
 const WEEK_MS = 7 * 24 * 60 * 60 * 1000;
 
 export function loadSavedProfile() {
@@ -31,6 +32,23 @@ export function saveProfile(profile) {
 
 export function clearSavedProfile() {
   localStorage.removeItem(STORAGE_KEY);
+}
+
+export function saveAdminEmail(email) {
+  localStorage.setItem(ADMIN_EMAIL_KEY, String(email).trim().toLowerCase());
+}
+
+export function loadAdminEmail() {
+  try {
+    const value = localStorage.getItem(ADMIN_EMAIL_KEY);
+    return value ? String(value).trim().toLowerCase() : "";
+  } catch {
+    return "";
+  }
+}
+
+export function clearAdminEmail() {
+  localStorage.removeItem(ADMIN_EMAIL_KEY);
 }
 
 export function loadJoinedSession() {
@@ -64,6 +82,7 @@ export function clearJoinedSession() {
 export function clearParticipantData() {
   clearSavedProfile();
   clearJoinedSession();
+  clearAdminEmail();
 }
 
 export async function findSessionByRoomCode(roomCode) {

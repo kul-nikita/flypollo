@@ -4,7 +4,13 @@ import Landing from "./pages/Landing";
 import Entry from "./pages/Entry";
 import Dashboard from "./pages/Dashboard";
 import Admin from "./pages/Admin";
-import { clearParticipantData, loadJoinedSession } from "./lib/participant";
+import { isAdminEmail } from "./config/admin";
+import {
+  clearParticipantData,
+  loadAdminEmail,
+  loadJoinedSession,
+  loadSavedProfile,
+} from "./lib/participant";
 
 function parseRoomParam() {
   try {
@@ -15,8 +21,28 @@ function parseRoomParam() {
   }
 }
 
+function resolveInitialView() {
+  const profile = loadSavedProfile();
+  if (profile) {
+    if (isAdminEmail(profile.email)) {
+      return { name: "admin", email: profile.email };
+    }
+    return {
+      name: "dashboard",
+      profile,
+      joinedSession: loadJoinedSession(),
+      initialRoomCode: parseRoomParam(),
+    };
+  }
+  const adminEmail = loadAdminEmail();
+  if (adminEmail && isAdminEmail(adminEmail)) {
+    return { name: "admin", email: adminEmail };
+  }
+  return { name: "landing" };
+}
+
 export default function App() {
-  const [view, setView] = useState({ name: "landing" });
+  const [view, setView] = useState(resolveInitialView);
   const [pendingRoom, setPendingRoom] = useState(() => parseRoomParam());
 
   const goHome = () => {

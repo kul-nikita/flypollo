@@ -4,6 +4,7 @@ import {
   findParticipantByEmail,
   loadSavedProfile,
   registerParticipant,
+  saveAdminEmail,
   saveProfile,
 } from "../lib/participant";
 import { configured } from "../firebase";
@@ -31,6 +32,7 @@ export default function Entry({ email, onBack, onAdmin, onParticipant }) {
       setError("");
       try {
         if (isAdminEmail(normalizedEmail)) {
+          saveAdminEmail(normalizedEmail);
           onAdmin(normalizedEmail);
           return;
         }

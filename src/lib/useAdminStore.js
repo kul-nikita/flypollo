@@ -741,6 +741,7 @@ export function useAdminStore(adminEmail) {
     removeSession,
     downloadSessionCsv,
     requestConfirm: setConfirm,
+    confirm: confirm,
     confirmDialog,
     runConfirm,
   };

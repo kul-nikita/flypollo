@@ -26,23 +26,76 @@ service cloud.firestore {
              email.matches('^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$');
     }
 
+    function validQuestion(q) {
+      return q is map &&
+             q.keys().hasAll(['question', 'options', 'correctIndex']) &&
+             q.question is string && q.question.size() > 0 &&
+             q.options is list && q.options.size() == 4 &&
+             q.options[0] is string && q.options[0].size() > 0 &&
+             q.options[1] is string && q.options[1].size() > 0 &&
+             q.options[2] is string && q.options[2].size() > 0 &&
+             q.options[3] is string && q.options[3].size() > 0 &&
+             q.correctIndex is int &&
+             q.correctIndex >= 0 && q.correctIndex <= 3;
+    }
+
+    // Rules v2 cannot iterate over lists, so each position is checked
+    // explicitly up to a safe maximum.
     function validQuestions() {
       let questions = request.resource.data.questions;
-      if (!(questions is list)) return false;
-      for (let question in questions) {
-        if (!(question is map) ||
-            !question.keys().hasAll(['question', 'options', 'correctIndex']) ||
-            !(question.question is string) || question.question.size() == 0 ||
-            !(question.options is list) || question.options.size() != 4 ||
-            !(question.correctIndex is int) ||
-            question.correctIndex < 0 || question.correctIndex > 3) {
-          return false;
-        }
-        for (let option in question.options) {
-          if (!(option is string)) return false;
-        }
-      }
-      return true;
+      return questions is list &&
+             questions.size() > 0 &&
+             questions.size() <= 50 &&
+             (questions.size() < 1 || validQuestion(questions[0])) &&
+             (questions.size() < 2 || validQuestion(questions[1])) &&
+             (questions.size() < 3 || validQuestion(questions[2])) &&
+             (questions.size() < 4 || validQuestion(questions[3])) &&
+             (questions.size() < 5 || validQuestion(questions[4])) &&
+             (questions.size() < 6 || validQuestion(questions[5])) &&
+             (questions.size() < 7 || validQuestion(questions[6])) &&
+             (questions.size() < 8 || validQuestion(questions[7])) &&
+             (questions.size() < 9 || validQuestion(questions[8])) &&
+             (questions.size() < 10 || validQuestion(questions[9])) &&
+             (questions.size() < 11 || validQuestion(questions[10])) &&
+             (questions.size() < 12 || validQuestion(questions[11])) &&
+             (questions.size() < 13 || validQuestion(questions[12])) &&
+             (questions.size() < 14 || validQuestion(questions[13])) &&
+             (questions.size() < 15 || validQuestion(questions[14])) &&
+             (questions.size() < 16 || validQuestion(questions[15])) &&
+             (questions.size() < 17 || validQuestion(questions[16])) &&
+             (questions.size() < 18 || validQuestion(questions[17])) &&
+             (questions.size() < 19 || validQuestion(questions[18])) &&
+             (questions.size() < 20 || validQuestion(questions[19])) &&
+             (questions.size() < 21 || validQuestion(questions[20])) &&
+             (questions.size() < 22 || validQuestion(questions[21])) &&
+             (questions.size() < 23 || validQuestion(questions[22])) &&
+             (questions.size() < 24 || validQuestion(questions[23])) &&
+             (questions.size() < 25 || validQuestion(questions[24])) &&
+             (questions.size() < 26 || validQuestion(questions[25])) &&
+             (questions.size() < 27 || validQuestion(questions[26])) &&
+             (questions.size() < 28 || validQuestion(questions[27])) &&
+             (questions.size() < 29 || validQuestion(questions[28])) &&
+             (questions.size() < 30 || validQuestion(questions[29])) &&
+             (questions.size() < 31 || validQuestion(questions[30])) &&
+             (questions.size() < 32 || validQuestion(questions[31])) &&
+             (questions.size() < 33 || validQuestion(questions[32])) &&
+             (questions.size() < 34 || validQuestion(questions[33])) &&
+             (questions.size() < 35 || validQuestion(questions[34])) &&
+             (questions.size() < 36 || validQuestion(questions[35])) &&
+             (questions.size() < 37 || validQuestion(questions[36])) &&
+             (questions.size() < 38 || validQuestion(questions[37])) &&
+             (questions.size() < 39 || validQuestion(questions[38])) &&
+             (questions.size() < 40 || validQuestion(questions[39])) &&
+             (questions.size() < 41 || validQuestion(questions[40])) &&
+             (questions.size() < 42 || validQuestion(questions[41])) &&
+             (questions.size() < 43 || validQuestion(questions[42])) &&
+             (questions.size() < 44 || validQuestion(questions[43])) &&
+             (questions.size() < 45 || validQuestion(questions[44])) &&
+             (questions.size() < 46 || validQuestion(questions[45])) &&
+             (questions.size() < 47 || validQuestion(questions[46])) &&
+             (questions.size() < 48 || validQuestion(questions[47])) &&
+             (questions.size() < 49 || validQuestion(questions[48])) &&
+             (questions.size() < 50 || validQuestion(questions[49]));
     }
 
     function validParticipantProfile() {
@@ -57,25 +110,22 @@ service cloud.firestore {
              (!d.keys().has('designation') || d.designation is string);
     }
 
+    // Each write may add exactly one brand-new participant entry to a
+    // question's answer document. Existing entries must never be changed or
+    // removed. The new (or only) entry must be a well-formed answer.
     function validAnswerWrite() {
       let prev = resource == null ? {} : resource.data;
       let delta = request.resource.data.diff(prev);
-      if (delta.removedKeys().size() > 0) return false;
-      let changed = delta.affectedKeys();
-      if (changed.size() > 1) return false;
-      for (let key in changed) {
-        if (prev.keys().has(key)) return false;
-        let entry = request.resource.data[key];
-        if (!(entry is map) ||
-            !entry.keys().hasAll(['selectedIndex', 'timestamp']) ||
-            (entry.keys().has('responseMs') && !(entry.responseMs is number)) ||
-            !(entry.selectedIndex is int) ||
-            entry.selectedIndex < 0 || entry.selectedIndex > 3 ||
-            !(entry.timestamp is string) || entry.timestamp.size() == 0) {
-          return false;
-        }
-      }
-      return true;
+      let added = delta.addedValues().toList();
+      return delta.removedKeys().size() == 0 &&
+             delta.changedKeys().size() == 0 &&
+             added.size() == 1 &&
+             added[0] is map &&
+             added[0].keys().hasAll(['selectedIndex', 'timestamp']) &&
+             added[0].selectedIndex is int &&
+             added[0].selectedIndex >= 0 && added[0].selectedIndex <= 3 &&
+             added[0].timestamp is string && added[0].timestamp.size() > 0 &&
+             (!added[0].keys().has('responseMs') || added[0].responseMs is number);
     }
 
     // Every session record (draft or published) carries the same field set.

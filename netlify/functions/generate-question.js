@@ -12,7 +12,7 @@ function jsonResponse(statusCode, payload) {
 }
 
 const DEFAULT_MODEL = "gemini-flash-latest";
-const REQUEST_TIMEOUT_MS = 30000;
+const REQUEST_TIMEOUT_MS = 24000;
 const GEMINI_BASE_URL = "https://generativelanguage.googleapis.com/v1beta/models";
 
 const systemPrompt = [

@@ -13,9 +13,10 @@ function jsonResponse(statusCode, payload) {
 
 const MAX_TRANSCRIPT_CHARS = 120000;
 // Per-attempt Gemini timeout. Must fit inside FUNCTION_MAX_DURATION_MS so the
-// function always returns before Netlify kills it. Override with
+// function always returns before Netlify kills it. Defaults to the full
+// 24s window (26s max duration minus 2s deadline slack). Override with
 // REQUEST_TIMEOUT_MS in the Netlify environment if needed.
-export const DEFAULT_REQUEST_TIMEOUT_MS = 20000;
+export const DEFAULT_REQUEST_TIMEOUT_MS = 24000;
 // Must match maxDuration = 26 in netlify.toml (max on the free plan).
 export const FUNCTION_MAX_DURATION_MS = 26 * 1000;
 // Time reserved after the last Gemini call for parsing, validation, and

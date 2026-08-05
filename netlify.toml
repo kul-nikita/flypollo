@@ -14,3 +14,6 @@
 
 [functions."generate-mcq"]
   maxDuration = 26
+
+[functions."generate-question"]
+  maxDuration = 26

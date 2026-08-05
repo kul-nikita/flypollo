@@ -4,6 +4,13 @@ const headers = {
   "Access-Control-Allow-Headers": "Content-Type",
 };
 
+function jsonResponse(statusCode, payload) {
+  return new Response(JSON.stringify(payload), {
+    status: statusCode,
+    headers,
+  });
+}
+
 const MAX_TRANSCRIPT_CHARS = 120000;
 // Per-attempt Gemini timeout. Must fit inside FUNCTION_MAX_DURATION_MS so the
 // function always returns before Netlify kills it. Override with
@@ -198,26 +205,18 @@ function validateQuestions(value) {
 
 export default async function handler(event) {
   if (event.httpMethod === "OPTIONS") {
-    return { statusCode: 200, headers, body: "" };
+    return new Response(null, { status: 200, headers });
   }
 
   if (event.httpMethod !== "POST") {
-    return {
-      statusCode: 405,
-      headers,
-      body: JSON.stringify({ error: "Method not allowed" }),
-    };
+    return jsonResponse(405, { error: "Method not allowed" });
   }
 
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) {
-    return {
-      statusCode: 500,
-      headers,
-      body: JSON.stringify({
-        error: "GEMINI_API_KEY is not set on the server",
-      }),
-    };
+    return jsonResponse(500, {
+      error: "GEMINI_API_KEY is not set on the server",
+    });
   }
 
   const model = process.env.MODEL_NAME || DEFAULT_MODEL;
@@ -231,11 +230,7 @@ export default async function handler(event) {
   }
 
   if (!transcript) {
-    return {
-      statusCode: 400,
-      headers,
-      body: JSON.stringify({ error: "transcript is required" }),
-    };
+    return jsonResponse(400, { error: "transcript is required" });
   }
   if (transcript.length > MAX_TRANSCRIPT_CHARS) {
     transcript = transcript.slice(0, MAX_TRANSCRIPT_CHARS);
@@ -248,13 +243,9 @@ export default async function handler(event) {
   let rawText;
   const firstBudget = attemptBudget(requestTimeoutMs, Date.now() - startedAt);
   if (firstBudget <= 0) {
-    return {
-      statusCode: 504,
-      headers,
-      body: JSON.stringify({
-        error: "The Gemini request timed out before it could start. Try again.",
-      }),
-    };
+    return jsonResponse(504, {
+      error: "The Gemini request timed out before it could start. Try again.",
+    });
   }
   try {
     rawText = await callGemini(
@@ -265,11 +256,7 @@ export default async function handler(event) {
       firstBudget
     );
   } catch (err) {
-    return {
-      statusCode: err.statusCode || 502,
-      headers,
-      body: JSON.stringify({ error: err.message }),
-    };
+    return jsonResponse(err.statusCode || 502, { error: err.message });
   }
 
   let questions;
@@ -278,13 +265,9 @@ export default async function handler(event) {
   } catch (firstError) {
     const retryElapsedMs = Date.now() - startedAt;
     if (!canRetry(retryElapsedMs)) {
-      return {
-        statusCode: 502,
-        headers,
-        body: JSON.stringify({
-          error: `Could not parse model output as valid JSON before the function time limit. First attempt: ${firstError.message}`,
-        }),
-      };
+      return jsonResponse(502, {
+        error: `Could not parse model output as valid JSON before the function time limit. First attempt: ${firstError.message}`,
+      });
     }
     try {
       const retryText = await callGemini(
@@ -296,19 +279,11 @@ export default async function handler(event) {
       );
       questions = validateQuestions(parseQuestions(retryText));
     } catch (retryError) {
-      return {
-        statusCode: 502,
-        headers,
-        body: JSON.stringify({
-          error: `Could not parse model output as valid JSON after a retry. First attempt: ${firstError.message}. After retry: ${retryError.message}`,
-        }),
-      };
+      return jsonResponse(502, {
+        error: `Could not parse model output as valid JSON after a retry. First attempt: ${firstError.message}. After retry: ${retryError.message}`,
+      });
     }
   }
 
-  return {
-    statusCode: 200,
-    headers,
-    body: JSON.stringify({ count: questions.length, questions }),
-  };
+  return jsonResponse(200, { count: questions.length, questions });
 }

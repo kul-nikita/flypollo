@@ -19,6 +19,16 @@ function postEvent(body) {
   };
 }
 
+async function invoke(event) {
+  const response = await handler(event);
+  const text = await response.text();
+  return {
+    statusCode: response.status,
+    headers: response.headers,
+    body: text ? JSON.parse(text) : "",
+  };
+}
+
 const QUESTION = {
   question: "Which of the following is a core step of cardiac arrest care?",
   options: ["Defibrillation", "Feeding", "Sleeping", "Walking"],
@@ -78,7 +88,7 @@ describe("generate-question.js", () => {
   test("uses gemini-flash-latest model by default", async () => {
     process.env.GEMINI_API_KEY = "test-key-123";
     const mock = installFetch([geminiOk(QUESTION_JSON)]);
-    const res = await handler(postEvent({ topic: "cardiac arrest" }));
+    const res = await invoke(postEvent({ topic: "cardiac arrest" }));
     assert.equal(res.statusCode, 200);
     assert.match(mock.last().url, /\/models\/gemini-flash-latest:generateContent/);
   });
@@ -87,16 +97,16 @@ describe("generate-question.js", () => {
     process.env.GEMINI_API_KEY = "test-key-123";
     process.env.MODEL_NAME = "gemini-2.5-pro";
     const mock = installFetch([geminiOk(QUESTION_JSON)]);
-    await handler(postEvent({ topic: "cardiac arrest" }));
+    await invoke(postEvent({ topic: "cardiac arrest" }));
     assert.match(mock.last().url, /\/models\/gemini-2.5-pro:generateContent/);
   });
 
   test("rejects when GEMINI_API_KEY is missing", async () => {
     const mock = installFetch([geminiOk(QUESTION_JSON)]);
     delete process.env.GEMINI_API_KEY;
-    const res = await handler(postEvent({ topic: "cardiac arrest" }));
+    const res = await invoke(postEvent({ topic: "cardiac arrest" }));
     assert.equal(res.statusCode, 500);
-    assert.match(JSON.parse(res.body).error, /GEMINI_API_KEY/);
+    assert.match(res.body.error, /GEMINI_API_KEY/);
     assert.equal(mock.count(), 0);
   });
 
@@ -105,18 +115,18 @@ describe("generate-question.js", () => {
     const mock = installFetch([
       geminiError(400, "API key not valid. Please pass a valid API key."),
     ]);
-    const res = await handler(postEvent({ topic: "cardiac arrest" }));
+    const res = await invoke(postEvent({ topic: "cardiac arrest" }));
     assert.equal(res.statusCode, 500);
-    assert.match(JSON.parse(res.body).error, /invalid/);
+    assert.match(res.body.error, /invalid/);
     assert.equal(mock.count(), 1);
   });
 
   test("returns a friendly 503 when the Gemini rate limit is exceeded", async () => {
     process.env.GEMINI_API_KEY = "test-key-123";
     const mock = installFetch([geminiError(429, "rate limit exceeded")]);
-    const res = await handler(postEvent({ topic: "cardiac arrest" }));
+    const res = await invoke(postEvent({ topic: "cardiac arrest" }));
     assert.equal(res.statusCode, 503);
-    assert.match(JSON.parse(res.body).error, /rate limit/);
+    assert.match(res.body.error, /rate limit/);
     assert.equal(mock.count(), 1);
   });
 
@@ -129,19 +139,19 @@ describe("generate-question.js", () => {
         "This model models/gemini-flash-latest is not available to new users."
       ),
     ]);
-    const res = await handler(postEvent({ topic: "cardiac arrest" }));
+    const res = await invoke(postEvent({ topic: "cardiac arrest" }));
     assert.equal(res.statusCode, 500);
-    assert.match(JSON.parse(res.body).error, /MODEL_NAME/);
+    assert.match(res.body.error, /MODEL_NAME/);
     assert.equal(mock.count(), 1);
   });
 
   test("returns success with the expected shape", async () => {
     process.env.GEMINI_API_KEY = "test-key-123";
     const mock = installFetch([geminiOk(QUESTION_JSON)]);
-    const res = await handler(postEvent({ topic: "cardiac arrest" }));
+    const res = await invoke(postEvent({ topic: "cardiac arrest" }));
     assert.equal(res.statusCode, 200);
     assert.equal(mock.count(), 1);
-    const data = JSON.parse(res.body);
+    const data = res.body;
     assert.equal(data.topic, "cardiac arrest");
     assert.deepEqual(Object.keys(data.question).sort(), [
       "answer_index",
@@ -154,30 +164,30 @@ describe("generate-question.js", () => {
   test("returns 502 for malformed model output", async () => {
     process.env.GEMINI_API_KEY = "test-key-123";
     const mock = installFetch([geminiOk("this is not json")]);
-    const res = await handler(postEvent({ topic: "cardiac arrest" }));
+    const res = await invoke(postEvent({ topic: "cardiac arrest" }));
     assert.equal(res.statusCode, 502);
-    assert.match(JSON.parse(res.body).error, /could not be used/);
+    assert.match(res.body.error, /could not be used/);
     assert.equal(mock.count(), 1);
   });
 
   test("rejects an empty response", async () => {
     process.env.GEMINI_API_KEY = "test-key-123";
     const mock = installFetch([geminiOk("   ")]);
-    const res = await handler(postEvent({ topic: "cardiac arrest" }));
+    const res = await invoke(postEvent({ topic: "cardiac arrest" }));
     assert.equal(res.statusCode, 502);
-    assert.match(JSON.parse(res.body).error, /empty response/);
+    assert.match(res.body.error, /empty response/);
     assert.equal(mock.count(), 1);
   });
 
   test("responds to CORS preflight (OPTIONS)", async () => {
-    const res = await handler({ httpMethod: "OPTIONS", headers: {} });
+    const res = await invoke({ httpMethod: "OPTIONS", headers: {} });
     assert.equal(res.statusCode, 200);
-    assert.equal(res.headers["Access-Control-Allow-Origin"], "*");
+    assert.equal(res.headers.get("Access-Control-Allow-Origin"), "*");
   });
 
   test("rejects non-POST methods with 405", async () => {
-    const res = await handler({ httpMethod: "GET", headers: {} });
+    const res = await invoke({ httpMethod: "GET", headers: {} });
     assert.equal(res.statusCode, 405);
-    assert.match(JSON.parse(res.body).error, /Method not allowed/);
+    assert.match(res.body.error, /Method not allowed/);
   });
 });

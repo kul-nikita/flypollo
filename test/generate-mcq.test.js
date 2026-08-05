@@ -27,6 +27,16 @@ function postEvent(body) {
   };
 }
 
+async function invoke(event) {
+  const response = await handler(event);
+  const text = await response.text();
+  return {
+    statusCode: response.status,
+    headers: response.headers,
+    body: text ? JSON.parse(text) : "",
+  };
+}
+
 function geminiOk(partsText) {
   return {
     ok: true,
@@ -111,16 +121,16 @@ const TRANSCRIPT_MARKER = "Bloom's taxonomy";
 
 function runTenQuestionSuccess(transcript) {
   const mock = installFetch([geminiOk(TEN_JSON)]);
-  return { mock, res: handler(postEvent({ transcript })) };
+  return { mock, res: invoke(postEvent({ transcript })) };
 }
 
 describe("generate-mcq.js", () => {
   test("reads process.env.GEMINI_API_KEY and rejects when missing", async () => {
     const mock = installFetch([geminiOk(TEN_JSON)]);
     delete process.env.GEMINI_API_KEY;
-    const res = await handler(postEvent({ transcript: "any" }));
+    const res = await invoke(postEvent({ transcript: "any" }));
     assert.equal(res.statusCode, 500);
-    const data = JSON.parse(res.body);
+    const data = res.body;
     assert.match(data.error, /GEMINI_API_KEY/);
     assert.match(data.error, /not set/);
     assert.equal(mock.count(), 0, "must not call Gemini without a key");
@@ -211,8 +221,8 @@ describe("generate-mcq.js", () => {
     const { res } = runTenQuestionSuccess(FDP_TRANSCRIPT);
     const result = await res;
     assert.equal(result.statusCode, 200);
-    assert.equal(result.headers["Access-Control-Allow-Origin"], "*");
-    const data = JSON.parse(result.body);
+    assert.equal(result.headers.get("Access-Control-Allow-Origin"), "*");
+    const data = result.body;
     assert.equal(data.count, 10);
     assert.equal(Array.isArray(data.questions), true);
     assert.equal(data.questions.length, 10);
@@ -221,7 +231,7 @@ describe("generate-mcq.js", () => {
   test("every question has question, options (length 4) and correctIndex", async () => {
     process.env.GEMINI_API_KEY = "test-key-123";
     const { res } = runTenQuestionSuccess(FDP_TRANSCRIPT);
-    const data = JSON.parse((await res).body);
+    const data = (await res).body;
     for (const q of data.questions) {
       assert.equal(typeof q.question, "string");
       assert.ok(q.question.trim().length > 0);
@@ -234,7 +244,7 @@ describe("generate-mcq.js", () => {
   test("correctIndex is always an integer in 0-3", async () => {
     process.env.GEMINI_API_KEY = "test-key-123";
     const { res } = runTenQuestionSuccess(FDP_TRANSCRIPT);
-    const data = JSON.parse((await res).body);
+    const data = (await res).body;
     for (const q of data.questions) {
       assert.ok(Number.isInteger(q.correctIndex));
       assert.ok(q.correctIndex >= 0 && q.correctIndex <= 3);
@@ -247,18 +257,18 @@ describe("generate-mcq.js", () => {
     bad[0].correctIndex = 7;
     const badJson = JSON.stringify(bad);
     const mock = installFetch([geminiOk(badJson), geminiOk(badJson)]);
-    const res = await handler(postEvent({ transcript: "short" }));
+    const res = await invoke(postEvent({ transcript: "short" }));
     assert.equal(res.statusCode, 502);
-    assert.match(JSON.parse(res.body).error, /correctIndex out of range/);
+    assert.match(res.body.error, /correctIndex out of range/);
     assert.equal(mock.count(), 2, "should retry before failing");
   });
 
   test("handles malformed Gemini text gracefully (retry, then useful 502)", async () => {
     process.env.GEMINI_API_KEY = "test-key-123";
     const mock = installFetch([geminiOk("this is not json at all"), geminiOk("still nope")]);
-    const res = await handler(postEvent({ transcript: FDP_TRANSCRIPT }));
+    const res = await invoke(postEvent({ transcript: FDP_TRANSCRIPT }));
     assert.equal(res.statusCode, 502);
-    const data = JSON.parse(res.body);
+    const data = res.body;
     assert.match(data.error, /Could not parse model output as valid JSON after a retry/);
     assert.match(data.error, /First attempt:/);
     assert.match(data.error, /After retry:/);
@@ -272,9 +282,9 @@ describe("generate-mcq.js", () => {
   test("recovers via retry when the first response is malformed", async () => {
     process.env.GEMINI_API_KEY = "test-key-123";
     const mock = installFetch([geminiOk("not json"), geminiOk(TEN_JSON)]);
-    const res = await handler(postEvent({ transcript: FDP_TRANSCRIPT }));
+    const res = await invoke(postEvent({ transcript: FDP_TRANSCRIPT }));
     assert.equal(res.statusCode, 200);
-    const data = JSON.parse(res.body);
+    const data = res.body;
     assert.equal(data.questions.length, 10);
     assert.equal(mock.count(), 2);
   });
@@ -283,8 +293,8 @@ describe("generate-mcq.js", () => {
     process.env.GEMINI_API_KEY = "test-key-123";
     const fenced = "```json\n" + TEN_JSON + "\n```";
     const mock = installFetch([geminiOk(fenced)]);
-    const res = await handler(postEvent({ transcript: FDP_TRANSCRIPT }));
-    const data = JSON.parse(res.body);
+    const res = await invoke(postEvent({ transcript: FDP_TRANSCRIPT }));
+    const data = res.body;
     assert.equal(data.questions.length, 10);
     assert.equal(mock.count(), 1, "should not need a retry for fenced JSON");
   });
@@ -293,8 +303,8 @@ describe("generate-mcq.js", () => {
     process.env.GEMINI_API_KEY = "test-key-123";
     const withProse = "Here are the questions you asked for:\n\n" + TEN_JSON + "\n\nThat is all.";
     const mock = installFetch([geminiOk(withProse)]);
-    const res = await handler(postEvent({ transcript: FDP_TRANSCRIPT }));
-    const data = JSON.parse(res.body);
+    const res = await invoke(postEvent({ transcript: FDP_TRANSCRIPT }));
+    const data = res.body;
     assert.equal(data.questions.length, 10);
     assert.equal(mock.count(), 1);
   });
@@ -302,18 +312,18 @@ describe("generate-mcq.js", () => {
   test("returns a useful 502 when Gemini returns an empty response", async () => {
     process.env.GEMINI_API_KEY = "test-key-123";
     const mock = installFetch([geminiOk("   ")]);
-    const res = await handler(postEvent({ transcript: FDP_TRANSCRIPT }));
+    const res = await invoke(postEvent({ transcript: FDP_TRANSCRIPT }));
     assert.equal(res.statusCode, 502);
-    assert.match(JSON.parse(res.body).error, /Gemini returned an empty response/);
+    assert.match(res.body.error, /Gemini returned an empty response/);
     assert.equal(mock.count(), 1, "no retry for transport/empty failures");
   });
 
   test("returns a friendly 503 when the Gemini rate limit is exceeded", async () => {
     process.env.GEMINI_API_KEY = "test-key-123";
     const mock = installFetch([geminiError(429, "rate limit exceeded")]);
-    const res = await handler(postEvent({ transcript: FDP_TRANSCRIPT }));
+    const res = await invoke(postEvent({ transcript: FDP_TRANSCRIPT }));
     assert.equal(res.statusCode, 503);
-    const data = JSON.parse(res.body);
+    const data = res.body;
     assert.match(data.error, /rate limit/);
     assert.match(data.error, /try again/);
     assert.equal(mock.count(), 1);
@@ -324,9 +334,9 @@ describe("generate-mcq.js", () => {
     const mock = installFetch([
       geminiError(400, "API key not valid. Please pass a valid API key."),
     ]);
-    const res = await handler(postEvent({ transcript: FDP_TRANSCRIPT }));
+    const res = await invoke(postEvent({ transcript: FDP_TRANSCRIPT }));
     assert.equal(res.statusCode, 500);
-    const data = JSON.parse(res.body);
+    const data = res.body;
     assert.match(data.error, /GEMINI_API_KEY/);
     assert.match(data.error, /invalid/);
     assert.equal(mock.count(), 1);
@@ -341,9 +351,9 @@ describe("generate-mcq.js", () => {
         "This model models/gemini-flash-latest is not available to new users."
       ),
     ]);
-    const res = await handler(postEvent({ transcript: FDP_TRANSCRIPT }));
+    const res = await invoke(postEvent({ transcript: FDP_TRANSCRIPT }));
     assert.equal(res.statusCode, 500);
-    const data = JSON.parse(res.body);
+    const data = res.body;
     assert.match(data.error, /gemini-flash-latest/);
     assert.match(data.error, /MODEL_NAME/);
     assert.equal(mock.count(), 1);
@@ -352,9 +362,9 @@ describe("generate-mcq.js", () => {
   test("returns a friendly error on a Gemini 5xx failure", async () => {
     process.env.GEMINI_API_KEY = "test-key-123";
     const mock = installFetch([geminiError(500, "internal error")]);
-    const res = await handler(postEvent({ transcript: FDP_TRANSCRIPT }));
+    const res = await invoke(postEvent({ transcript: FDP_TRANSCRIPT }));
     assert.equal(res.statusCode, 502);
-    const data = JSON.parse(res.body);
+    const data = res.body;
     assert.match(data.error, /temporarily unavailable/);
     assert.equal(mock.count(), 1);
   });
@@ -371,9 +381,9 @@ describe("generate-mcq.js", () => {
         return "";
       },
     });
-    const res = await handler(postEvent({ transcript: FDP_TRANSCRIPT }));
+    const res = await invoke(postEvent({ transcript: FDP_TRANSCRIPT }));
     assert.equal(res.statusCode, 502);
-    assert.match(JSON.parse(res.body).error, /Gemini returned an empty response/);
+    assert.match(res.body.error, /Gemini returned an empty response/);
   });
 
   test("times out a hung Gemini request and returns 502", async () => {
@@ -389,9 +399,9 @@ describe("generate-mcq.js", () => {
           });
         }),
     ]);
-    const res = await handler(postEvent({ transcript: "short transcript" }));
+    const res = await invoke(postEvent({ transcript: "short transcript" }));
     assert.equal(res.statusCode, 504);
-    assert.match(JSON.parse(res.body).error, /timed out/);
+    assert.match(res.body.error, /timed out/);
   });
 
   test("passes an AbortController signal to fetch", async () => {
@@ -414,9 +424,9 @@ describe("generate-mcq.js", () => {
       null,
     ]) {
       const mock = installFetch([geminiOk(TEN_JSON)]);
-      const res = await handler(postEvent(body));
+      const res = await invoke(postEvent(body));
       assert.equal(res.statusCode, 400, JSON.stringify(body));
-      assert.match(JSON.parse(res.body).error, /transcript is required/);
+      assert.match(res.body.error, /transcript is required/);
       assert.equal(mock.count(), 0, "must not call Gemini without a transcript");
     }
   });
@@ -428,7 +438,7 @@ describe("generate-mcq.js", () => {
     );
     const result = await res;
     assert.equal(result.statusCode, 200);
-    assert.equal(JSON.parse(result.body).questions.length, 10);
+    assert.equal(result.body.questions.length, 10);
     assert.ok(mock.last().body.contents[0].parts[0].text.includes("chest pain"));
   });
 
@@ -436,9 +446,9 @@ describe("generate-mcq.js", () => {
     process.env.GEMINI_API_KEY = "test-key-123";
     const few = JSON.stringify(TEN_QUESTIONS.slice(0, 3));
     const mock = installFetch([geminiOk(few), geminiOk(few)]);
-    const res = await handler(postEvent({ transcript: "Only one fact here." }));
+    const res = await invoke(postEvent({ transcript: "Only one fact here." }));
     assert.equal(res.statusCode, 502);
-    const data = JSON.parse(res.body);
+    const data = res.body;
     assert.match(data.error, /Expected 10 questions, got 3/);
     assert.match(data.error, /First attempt:/);
     assert.equal(mock.count(), 2);
@@ -460,10 +470,10 @@ describe("generate-mcq.js", () => {
   test("works end-to-end with a realistic FDP transcript", async () => {
     process.env.GEMINI_API_KEY = "test-key-123";
     const mock = installFetch([geminiOk(TEN_JSON)]);
-    const res = await handler(postEvent({ transcript: FDP_TRANSCRIPT }));
+    const res = await invoke(postEvent({ transcript: FDP_TRANSCRIPT }));
     const result = await res;
     assert.equal(result.statusCode, 200);
-    const data = JSON.parse(result.body);
+    const data = result.body;
     assert.equal(data.count, 10);
     assert.equal(data.questions.length, 10);
     const sent = mock.last().body.contents[0].parts[0].text;
@@ -474,7 +484,7 @@ describe("generate-mcq.js", () => {
   test("keeps the frontend response format unchanged", async () => {
     process.env.GEMINI_API_KEY = "test-key-123";
     const { res } = runTenQuestionSuccess(FDP_TRANSCRIPT);
-    const data = JSON.parse((await res).body);
+    const data = (await res).body;
     assert.deepEqual(Object.keys(data).sort(), ["count", "questions"]);
     for (const q of data.questions) {
       assert.deepEqual(Object.keys(q).sort(), ["correctIndex", "options", "question"]);
@@ -482,16 +492,16 @@ describe("generate-mcq.js", () => {
   });
 
   test("responds to CORS preflight (OPTIONS)", async () => {
-    const res = await handler({ httpMethod: "OPTIONS", headers: {} });
+    const res = await invoke({ httpMethod: "OPTIONS", headers: {} });
     assert.equal(res.statusCode, 200);
-    assert.equal(res.headers["Access-Control-Allow-Origin"], "*");
-    assert.equal(res.headers["Access-Control-Allow-Headers"], "Content-Type");
+    assert.equal(res.headers.get("Access-Control-Allow-Origin"), "*");
+    assert.equal(res.headers.get("Access-Control-Allow-Headers"), "Content-Type");
   });
 
   test("rejects non-POST methods with 405", async () => {
-    const res = await handler({ httpMethod: "GET", headers: {} });
+    const res = await invoke({ httpMethod: "GET", headers: {} });
     assert.equal(res.statusCode, 405);
-    assert.match(JSON.parse(res.body).error, /Method not allowed/);
+    assert.match(res.body.error, /Method not allowed/);
   });
 
   test("exports a Netlify-compatible default handler", () => {
@@ -561,9 +571,9 @@ describe("generate-mcq.js time budget", () => {
           });
         }),
     ]);
-    const res = await handler(postEvent({ transcript: "short transcript" }));
+    const res = await invoke(postEvent({ transcript: "short transcript" }));
     assert.equal(res.statusCode, 504);
-    assert.match(JSON.parse(res.body).error, /timed out/);
+    assert.match(res.body.error, /timed out/);
   });
 });
 

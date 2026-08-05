@@ -4,6 +4,13 @@ const headers = {
   "Access-Control-Allow-Headers": "Content-Type",
 };
 
+function jsonResponse(statusCode, payload) {
+  return new Response(JSON.stringify(payload), {
+    status: statusCode,
+    headers,
+  });
+}
+
 const DEFAULT_MODEL = "gemini-flash-latest";
 const REQUEST_TIMEOUT_MS = 30000;
 const GEMINI_BASE_URL = "https://generativelanguage.googleapis.com/v1beta/models";
@@ -157,26 +164,18 @@ function validateQuestion(value) {
 
 export default async function handler(event) {
   if (event.httpMethod === "OPTIONS") {
-    return { statusCode: 200, headers, body: "" };
+    return new Response(null, { status: 200, headers });
   }
 
   if (event.httpMethod !== "POST") {
-    return {
-      statusCode: 405,
-      headers,
-      body: JSON.stringify({ error: "Method not allowed" }),
-    };
+    return jsonResponse(405, { error: "Method not allowed" });
   }
 
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) {
-    return {
-      statusCode: 500,
-      headers,
-      body: JSON.stringify({
-        error: "GEMINI_API_KEY is not set on the server",
-      }),
-    };
+    return jsonResponse(500, {
+      error: "GEMINI_API_KEY is not set on the server",
+    });
   }
 
   const model = process.env.MODEL_NAME || DEFAULT_MODEL;
@@ -198,29 +197,17 @@ export default async function handler(event) {
   try {
     rawText = await callGemini(apiKey, model, prompt);
   } catch (err) {
-    return {
-      statusCode: err.statusCode || 502,
-      headers,
-      body: JSON.stringify({ error: err.message }),
-    };
+    return jsonResponse(err.statusCode || 502, { error: err.message });
   }
 
   let question;
   try {
     question = validateQuestion(parseQuestion(rawText));
   } catch (err) {
-    return {
-      statusCode: 502,
-      headers,
-      body: JSON.stringify({
-        error: `The Gemini API returned a response that could not be used: ${err.message}`,
-      }),
-    };
+    return jsonResponse(502, {
+      error: `The Gemini API returned a response that could not be used: ${err.message}`,
+    });
   }
 
-  return {
-    statusCode: 200,
-    headers,
-    body: JSON.stringify({ topic, question }),
-  };
+  return jsonResponse(200, { topic, question });
 }

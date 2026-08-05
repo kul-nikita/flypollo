@@ -3,7 +3,12 @@ import SessionCard from "../../components/SessionCard";
 import ConfirmDialog from "../../components/ConfirmDialog";
 import { useToast } from "../../components/Toasts";
 
-export default function SessionHistoryPage({ store, onOpenSession }) {
+export default function SessionHistoryPage({
+  store,
+  onOpenSession,
+  onOpenAnalytics,
+  onDuplicate,
+}) {
   const { sessions, loading, downloadSessionCsv, removeSession } = store;
   const [deleting, setDeleting] = useState(null);
   const [busy, setBusy] = useState(false);
@@ -53,8 +58,19 @@ export default function SessionHistoryPage({ store, onOpenSession }) {
             <SessionCard
               key={s.id}
               session={s}
-              onOpen={() => onOpenSession(s.id)}
+              onOpen={
+                s.status === "completed"
+                  ? undefined
+                  : () => onOpenSession(s.id)
+              }
+              openLabel={s.status === "draft" ? "Edit" : "Open"}
+              onAnalytics={
+                s.status === "completed"
+                  ? () => onOpenAnalytics(s.id)
+                  : undefined
+              }
               onDownload={() => downloadSessionCsv(s)}
+              onDuplicate={() => onDuplicate(s.id)}
               onDelete={() => setDeleting(s.id)}
             />
           ))}
@@ -65,8 +81,9 @@ export default function SessionHistoryPage({ store, onOpenSession }) {
         open={Boolean(deleting)}
         title="Delete session?"
         message="This permanently deletes the session and its stored questions. Participant answers and reports for it will be lost."
-        confirmLabel={busy ? "Deleting…" : "Delete session"}
+        confirmLabel="Delete session"
         danger
+        busy={busy}
         onConfirm={confirmDelete}
         onCancel={() => setDeleting(null)}
       />

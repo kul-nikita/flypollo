@@ -69,12 +69,16 @@ export function newSessionRecord({ sessionName, description, sessionDate }) {
     updatedAt: now,
     publishedAt: "",
     publishedBy: "",
+    presenter: "",
+    transcriptFilename: "",
     roomCode: "",
     shareUrl: "",
     qrUrl: "",
     questionCount: 0,
     participantCount: 0,
     questions: [],
+    analytics: {},
+    draftId: "",
   };
 }
 

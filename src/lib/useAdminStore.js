@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import QRCode from "qrcode";
 import {
   collection,
@@ -7,7 +7,7 @@ import {
   onSnapshot,
   setDoc,
 } from "firebase/firestore";
-import { ref, onValue, set } from "firebase/database";
+import { ref, onValue, get } from "firebase/database";
 import { db, database, configured } from "../firebase";
 import {
   todayLocal,
@@ -15,20 +15,21 @@ import {
   newSessionId,
   newSessionRecord,
   normalizeStatus,
-  sessionDocId,
   sessionShareUrl,
 } from "./session";
+import { DEFAULT_LIVE, liveRef, writeLiveStates } from "./live";
 import {
   listSessions,
   sessionToCsv,
   csvFilename,
   deleteSession as deleteSessionFromDb,
+  readAnswersByQuestion,
 } from "./report";
 import { useToast } from "../components/Toasts";
 
 export const FUNCTION_URL = "/.netlify/functions/generate-mcq";
 export const MAX_FILE_BYTES = 2 * 1024 * 1024;
-export const DEFAULT_LIVE = { questionIndex: 0, status: "idle" };
+export { DEFAULT_LIVE };
 
 export function emptyQuestion() {
   return { question: "", options: ["", "", "", ""], correctIndex: 0 };
@@ -71,6 +72,20 @@ export function useAdminStore(adminEmail) {
   const [answerCounts, setAnswerCounts] = useState([0, 0, 0, 0]);
   const [participantCount, setParticipantCount] = useState(0);
   const [confirm, setConfirm] = useState({ kind: null, index: null });
+  const [recoveredLiveId, setRecoveredLiveId] = useState(null);
+  const [navSaving, setNavSaving] = useState(false);
+  const createLockRef = useRef(false);
+  const generateLockRef = useRef(false);
+  const saveLockRef = useRef(false);
+  const publishLockRef = useRef(false);
+  const startLockRef = useRef(false);
+  const endLockRef = useRef(false);
+  const backLockRef = useRef(false);
+  const removeLockRef = useRef(false);
+  const duplicateLockRef = useRef(false);
+  const navLockRef = useRef(false);
+  const navTargetRef = useRef(0);
+  const csvLockRef = useRef(0);
   const { showToast } = useToast();
 
   const normalizedStatus = session ? normalizeStatus(session.status) : "draft";
@@ -87,7 +102,7 @@ export function useAdminStore(adminEmail) {
           ? "review"
           : "upload"
         : "live";
-  const liveSessionId = sessionDocId(live);
+  const liveSessionId = session?.id || null;
   const shareUrl =
     session?.shareUrl || (session?.roomCode ? sessionShareUrl(session.roomCode) : "");
 
@@ -103,9 +118,24 @@ export function useAdminStore(adminEmail) {
       setLoading(false);
       return;
     }
+    let cancelled = false;
     listSessions(db)
-      .then((list) => {
+      .then(async (list) => {
+        if (cancelled) return;
         setSessions(list);
+        const liveCandidate = list.find((s) => s.status === "live") || null;
+        if (liveCandidate && configured && database) {
+          const snap = await get(liveRef(database, liveCandidate.id));
+          const value = snap.val();
+          if (!cancelled && value && typeof value.status === "string") {
+            if (value.status === "live") {
+              setSession(liveCandidate);
+              setQuestions(liveCandidate.questions || []);
+              setRecoveredLiveId(liveCandidate.id);
+              return;
+            }
+          }
+        }
         const current =
           list.find((s) => s.status === "draft" && s.questions.length > 0) ||
           list[0];
@@ -118,7 +148,12 @@ export function useAdminStore(adminEmail) {
         setError(err.message);
         showToast(err.message, "error");
       })
-      .finally(() => setLoading(false));
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -128,20 +163,30 @@ export function useAdminStore(adminEmail) {
     const offConnected = onValue(connectedRef, (snap) => {
       setConnected(Boolean(snap.val()));
     });
-    const liveRef = ref(database, "session/live");
-    const offLive = onValue(liveRef, (snap) => {
+    return () => {
+      offConnected();
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!configured || !database || !session?.id) {
+      setLive(DEFAULT_LIVE);
+      return;
+    }
+    const offLive = onValue(liveRef(database, session.id), (snap) => {
       const value = snap.val();
       if (value && typeof value.status === "string") {
         setLive(value);
+        if (typeof value.questionIndex === "number") {
+          navTargetRef.current = value.questionIndex;
+        }
       } else {
         setLive(DEFAULT_LIVE);
+        navTargetRef.current = 0;
       }
     });
-    return () => {
-      offConnected();
-      offLive();
-    };
-  }, []);
+    return () => offLive();
+  }, [session?.id]);
 
   useEffect(() => {
     if (!session?.roomCode || normalizedStatus === "draft") {
@@ -252,34 +297,59 @@ export function useAdminStore(adminEmail) {
   const totalAnswers = answerCounts.reduce((sum, count) => sum + count, 0);
 
   function writeLive(patch) {
-    if (!configured || !database) return;
-    set(
-      ref(database, "session/live"),
-      {
-        questionIndex: live.questionIndex,
-        status: live.status,
-        sessionId: session?.id || null,
-        sessionDate: session?.sessionDate || todayLocal(),
-        roomCode: session?.roomCode || null,
-        ...patch,
+    if (!configured || !database || !session?.id) return Promise.resolve(false);
+    return writeLiveStates(database, session.id, {
+      questionIndex: live.questionIndex,
+      status: live.status,
+      sessionId: session.id,
+      sessionDate: session.sessionDate || todayLocal(),
+      roomCode: session.roomCode || null,
+      ...patch,
+    }).then(
+      () => true,
+      (err) => {
+        setError(err.message);
+        showToast(err.message, "error");
+        return false;
       }
-    ).catch((err) => {
-      setError(err.message);
-      showToast(err.message, "error");
-    });
+    );
   }
 
   function nextQuestion() {
+    if (navLockRef.current) return;
+    const currentIndex = navTargetRef.current;
+    const nextIndex = Math.min(currentIndex + 1, questions.length - 1);
+    navLockRef.current = true;
+    navTargetRef.current = nextIndex;
+    setNavSaving(true);
     writeLive({
-      questionIndex: Math.min(live.questionIndex + 1, questions.length - 1),
+      questionIndex: nextIndex,
       status: "live",
+      questionShownAt: Date.now(),
+    }).then((ok) => {
+      if (!ok) navTargetRef.current = currentIndex;
+    }).finally(() => {
+      navLockRef.current = false;
+      setNavSaving(false);
     });
   }
 
   function prevQuestion() {
+    if (navLockRef.current) return;
+    const currentIndex = navTargetRef.current;
+    const prevIndex = Math.max(currentIndex - 1, 0);
+    navLockRef.current = true;
+    navTargetRef.current = prevIndex;
+    setNavSaving(true);
     writeLive({
-      questionIndex: Math.max(live.questionIndex - 1, 0),
+      questionIndex: prevIndex,
       status: "live",
+      questionShownAt: Date.now(),
+    }).then((ok) => {
+      if (!ok) navTargetRef.current = currentIndex;
+    }).finally(() => {
+      navLockRef.current = false;
+      setNavSaving(false);
     });
   }
 
@@ -307,6 +377,8 @@ export function useAdminStore(adminEmail) {
 
   async function createSession(event) {
     event.preventDefault();
+    if (createLockRef.current) return;
+    createLockRef.current = true;
     setCreating(true);
     setError("");
     try {
@@ -331,6 +403,7 @@ export function useAdminStore(adminEmail) {
       showToast(err.message, "error");
     } finally {
       setCreating(false);
+      createLockRef.current = false;
     }
   }
 
@@ -341,6 +414,7 @@ export function useAdminStore(adminEmail) {
 
   async function generate(event) {
     event.preventDefault();
+    if (generateLockRef.current) return;
     if (!file) return;
     if (!/\.txt$/i.test(file.name)) {
       setError("Please choose a .txt file.");
@@ -350,6 +424,7 @@ export function useAdminStore(adminEmail) {
       setError("File is too large. Please use a transcript under 2 MB.");
       return;
     }
+    generateLockRef.current = true;
     setGenerating(true);
     setError("");
     try {
@@ -376,6 +451,7 @@ export function useAdminStore(adminEmail) {
       showToast(err.message, "error");
     } finally {
       setGenerating(false);
+      generateLockRef.current = false;
     }
   }
 
@@ -412,12 +488,14 @@ export function useAdminStore(adminEmail) {
   }
 
   async function saveDraft() {
+    if (saveLockRef.current) return;
     const invalid = validationError(questions);
     if (invalid) {
       setError(invalid);
       showToast(invalid, "error");
       return;
     }
+    saveLockRef.current = true;
     setSaving(true);
     setError("");
     try {
@@ -425,18 +503,28 @@ export function useAdminStore(adminEmail) {
         throw new Error("Select a session before saving a draft.");
       }
       const questionCount = questions.length;
+      const transcriptFilename = file?.name || session.transcriptFilename || "";
       await setDoc(
         doc(db, "sessions", session.id),
         {
           status: "draft",
           questions,
           questionCount,
+          transcriptFilename,
           updatedAt: new Date().toISOString(),
         },
         { merge: true }
       );
       setSession((s) =>
-        s ? { ...s, status: "draft", questions, questionCount } : s
+        s
+          ? {
+              ...s,
+              status: "draft",
+              questions,
+              questionCount,
+              transcriptFilename,
+            }
+          : s
       );
       showToast("Draft saved. You can publish it any time.", "success");
     } catch (err) {
@@ -444,16 +532,19 @@ export function useAdminStore(adminEmail) {
       showToast(err.message, "error");
     } finally {
       setSaving(false);
+      saveLockRef.current = false;
     }
   }
 
   async function publish() {
+    if (publishLockRef.current) return;
     const invalid = validationError(questions);
     if (invalid) {
       setError(invalid);
       showToast(invalid, "error");
       return;
     }
+    publishLockRef.current = true;
     setSaving(true);
     setError("");
     try {
@@ -475,49 +566,36 @@ export function useAdminStore(adminEmail) {
       } catch {
         qrDataUrl = "";
       }
-      await setDoc(
-        doc(db, "sessions", session.id),
-        {
-          status: "published",
-          published: true,
-          questions,
-          questionCount: questions.length,
-          roomCode,
-          qrCode: qrDataUrl,
-          shareUrl,
-          qrUrl: qrDataUrl,
-          sessionName: session.sessionName,
-          sessionDate: session.sessionDate,
-          publishedAt,
-          publishedBy: adminEmail,
-          participantCount: 0,
-          updatedAt: publishedAt,
-        },
-        { merge: true }
-      );
-      setSession((s) =>
-        s
-          ? {
-              ...s,
-              status: "published",
-              published: true,
-              questions,
-              questionCount: questions.length,
-              roomCode,
-              qrCode: qrDataUrl,
-              shareUrl,
-              qrUrl: qrDataUrl,
-              publishedAt,
-              publishedBy: adminEmail,
-              participantCount: 0,
-            }
-          : s
-      );
+      const publishedId = newSessionId();
+      const publishedRecord = {
+        sessionId: publishedId,
+        sessionName: session.sessionName,
+        description: session.description || "",
+        sessionDate: session.sessionDate,
+        status: "published",
+        published: true,
+        createdAt: session.createdAt || publishedAt,
+        updatedAt: publishedAt,
+        publishedAt,
+        publishedBy: adminEmail,
+        presenter: adminEmail,
+        transcriptFilename: file?.name || session.transcriptFilename || "",
+        roomCode,
+        shareUrl,
+        qrUrl: qrDataUrl,
+        questionCount: questions.length,
+        participantCount: 0,
+        questions,
+        analytics: {},
+        draftId: session.id,
+      };
+      await setDoc(doc(db, "sessions", publishedId), publishedRecord);
+      setSession({ id: publishedId, ...publishedRecord });
       setQrDataUrl(qrDataUrl);
-      await set(ref(database, "session/live"), {
+      await writeLiveStates(database, publishedId, {
         questionIndex: 0,
         status: "idle",
-        sessionId: session.id,
+        sessionId: publishedId,
         sessionDate: session.sessionDate,
         roomCode,
       });
@@ -531,11 +609,14 @@ export function useAdminStore(adminEmail) {
       showToast(err.message, "error");
     } finally {
       setSaving(false);
+      publishLockRef.current = false;
       setConfirm({ kind: null, index: null });
     }
   }
 
   async function startSession() {
+    if (startLockRef.current) return;
+    startLockRef.current = true;
     setSaving(true);
     setError("");
     try {
@@ -550,32 +631,61 @@ export function useAdminStore(adminEmail) {
         );
         setSession((s) => (s ? { ...s, status: "live" } : s));
       }
-      writeLive({ questionIndex: 0, status: "live" });
+      writeLive({ questionIndex: 0, status: "live", questionShownAt: Date.now() });
       showToast("Quiz is live.", "success");
     } catch (err) {
       setError(err.message);
       showToast(err.message, "error");
     } finally {
       setSaving(false);
+      startLockRef.current = false;
     }
   }
 
   async function endSession() {
+    if (endLockRef.current) return;
+    endLockRef.current = true;
     setSaving(true);
     setError("");
     try {
       if (configured && db && session?.id) {
+        const answers = await readAnswersByQuestion(db, session.id);
+        const participantIds = new Set();
+        let totalAnswers = 0;
+        const perQuestion = {};
+        for (const [questionIndex, data] of answers) {
+          const counts = [0, 0, 0, 0];
+          for (const [participantId, entry] of Object.entries(data || {})) {
+            if (!entry || typeof entry.selectedIndex !== "number") continue;
+            participantIds.add(participantId);
+            totalAnswers += 1;
+            if (entry.selectedIndex >= 0 && entry.selectedIndex <= 3) {
+              counts[entry.selectedIndex] += 1;
+            }
+          }
+          perQuestion[questionIndex] = counts;
+        }
+        const analytics = {
+          participantCount: participantIds.size,
+          totalAnswers,
+          questionCount: session.questionCount || questions.length,
+          perQuestion,
+          computedAt: new Date().toISOString(),
+        };
         await setDoc(
           doc(db, "sessions", session.id),
           {
             status: "completed",
-            participantCount,
+            participantCount: participantIds.size,
+            analytics,
             updatedAt: new Date().toISOString(),
           },
           { merge: true }
         );
         setSession((s) =>
-          s ? { ...s, status: "completed", participantCount } : s
+          s
+            ? { ...s, status: "completed", participantCount: participantIds.size }
+            : s
         );
       }
       writeLive({ status: "ended" });
@@ -588,34 +698,62 @@ export function useAdminStore(adminEmail) {
       showToast(err.message, "error");
     } finally {
       setSaving(false);
+      endLockRef.current = false;
       setConfirm({ kind: null, index: null });
     }
   }
 
   async function backToDraft() {
+    if (backLockRef.current) return;
+    backLockRef.current = true;
     setSaving(true);
     setError("");
     try {
-      if (configured && db && session?.id) {
-        await setDoc(
-          doc(db, "sessions", session.id),
-          {
-            status: "draft",
-            published: false,
-            updatedAt: new Date().toISOString(),
-          },
-          { merge: true }
-        );
-        setSession((s) => (s ? { ...s, status: "draft", published: false } : s));
+      const endedSessionId = session?.id || null;
+      const endedSessionDate = session?.sessionDate || todayLocal();
+      const endedRoomCode = session?.roomCode || null;
+      const draftId = session?.draftId || "";
+      let draft = null;
+      if (configured && db && draftId) {
+        draft = sessions.find((s) => s.id === draftId) || null;
+        if (!draft) {
+          const record = newSessionRecord({
+            sessionName: session?.sessionName || "",
+            description: session?.description || "",
+            sessionDate: session?.sessionDate || todayLocal(),
+          });
+          draft = {
+            id: draftId,
+            ...record,
+            transcriptFilename: session?.transcriptFilename || "",
+            questionCount: questions.length,
+            questions,
+          };
+          await setDoc(doc(db, "sessions", draftId), {
+            sessionId: draftId,
+            ...record,
+            transcriptFilename: draft.transcriptFilename,
+            questionCount: draft.questionCount,
+            questions,
+          });
+        }
       }
-      if (configured && database) {
-        await set(ref(database, "session/live"), {
+      if (draft) {
+        setSession(draft);
+        setQuestions(draft.questions || []);
+      }
+      if (configured && database && endedSessionId) {
+        await writeLiveStates(database, endedSessionId, {
           questionIndex: 0,
           status: "idle",
+          sessionId: endedSessionId,
+          sessionDate: endedSessionDate,
+          roomCode: endedRoomCode,
         });
       }
+      setLive(DEFAULT_LIVE);
       showToast(
-        "Back to editing. Publish again to create a fresh room code.",
+        "Back to editing. The published session stays on record; publishing again creates a fresh room code.",
         "info"
       );
     } catch (err) {
@@ -623,22 +761,63 @@ export function useAdminStore(adminEmail) {
       showToast(err.message, "error");
     } finally {
       setSaving(false);
+      backLockRef.current = false;
       setConfirm({ kind: null, index: null });
     }
   }
 
   async function removeSession(id) {
-    if (!configured || !db) {
-      throw new Error(
-        "Firebase is not configured. Add the VITE_FIREBASE_* variables to .env and restart."
-      );
+    if (removeLockRef.current) return;
+    removeLockRef.current = true;
+    try {
+      if (!configured || !db) {
+        throw new Error(
+          "Firebase is not configured. Add the VITE_FIREBASE_* variables to .env and restart."
+        );
+      }
+      await deleteSessionFromDb(db, id);
+      if (session?.id === id) newSession();
+      await refreshSessions();
+    } finally {
+      removeLockRef.current = false;
     }
-    await deleteSessionFromDb(db, id);
-    if (session?.id === id) newSession();
-    await refreshSessions();
+  }
+
+  async function duplicateSession(id) {
+    if (duplicateLockRef.current) return null;
+    duplicateLockRef.current = true;
+    try {
+      if (!configured || !db) {
+        throw new Error(
+          "Firebase is not configured. Add the VITE_FIREBASE_* variables to .env and restart."
+        );
+      }
+      const source = sessions.find((s) => s.id === id);
+      if (!source) throw new Error("Session not found.");
+      const sessionId = newSessionId();
+      const record = newSessionRecord({
+        sessionName: `${source.sessionName} (copy)`,
+        description: source.description || "",
+        sessionDate: source.sessionDate || todayLocal(),
+      });
+      const duplicate = {
+        ...record,
+        questionCount: source.questionCount,
+        questions: source.questions || [],
+      };
+      await setDoc(doc(db, "sessions", sessionId), { sessionId, ...duplicate });
+      await refreshSessions();
+      showToast(`Duplicate created: "${duplicate.sessionName}".`, "success");
+      return sessionId;
+    } finally {
+      duplicateLockRef.current = false;
+    }
   }
 
   function downloadSessionCsv(sessionToDownload) {
+    const now = Date.now();
+    if (now - csvLockRef.current < 400) return;
+    csvLockRef.current = now;
     const csv = sessionToCsv(sessionToDownload);
     const blob = new Blob([`\uFEFF${csv}`], { type: "text/csv;charset=utf-8;" });
     const url = URL.createObjectURL(blob);
@@ -657,9 +836,10 @@ export function useAdminStore(adminEmail) {
           title: "Publish session?",
           points: [
             "Questions reviewed",
-            "Room Code will be generated",
-            "QR Code will be generated",
+            "A brand-new room code and QR will be generated",
+            "A new published session record will be created",
             "Participants will immediately be able to join",
+            "Previous published sessions are kept on record",
           ],
           confirmLabel: "Publish",
         }
@@ -667,7 +847,7 @@ export function useAdminStore(adminEmail) {
         ? {
             title: "Return to editing?",
             message:
-              "The published room code and QR will be hidden until you publish again.",
+              "This published session stays on record. You'll return to the editable draft, and publishing again creates a fresh room code.",
             confirmLabel: "Go back",
           }
         : confirm.kind === "endSession"
@@ -722,6 +902,8 @@ export function useAdminStore(adminEmail) {
     shareUrl,
     currentQuestion,
     totalAnswers,
+    recoveredLiveId,
+    navSaving,
     refreshSessions,
     selectSession,
     newSession,
@@ -738,7 +920,10 @@ export function useAdminStore(adminEmail) {
     startSession,
     endSession,
     backToDraft,
+    nextQuestion,
+    prevQuestion,
     removeSession,
+    duplicateSession,
     downloadSessionCsv,
     requestConfirm: setConfirm,
     confirm: confirm,

@@ -1,7 +1,15 @@
 import StatusChip from "./StatusChip";
 import { formatDate } from "../lib/session";
 
-export default function SessionCard({ session, onOpen, onDownload, onDelete }) {
+export default function SessionCard({
+  session,
+  onOpen,
+  openLabel = "Open",
+  onDownload,
+  onDelete,
+  onAnalytics,
+  onDuplicate,
+}) {
   return (
     <div className="adb-history-card">
       <div className="adb-history-main">
@@ -28,7 +36,16 @@ export default function SessionCard({ session, onOpen, onDownload, onDelete }) {
       <div className="adb-history-actions">
         {onOpen && (
           <button type="button" className="btn btn-primary btn-sm" onClick={onOpen}>
-            Open
+            {openLabel}
+          </button>
+        )}
+        {onAnalytics && (
+          <button
+            type="button"
+            className="btn btn-primary btn-sm"
+            onClick={onAnalytics}
+          >
+            View Analytics
           </button>
         )}
         {onDownload && (
@@ -38,6 +55,15 @@ export default function SessionCard({ session, onOpen, onDownload, onDelete }) {
             onClick={onDownload}
           >
             Download CSV
+          </button>
+        )}
+        {onDuplicate && (
+          <button
+            type="button"
+            className="btn btn-ghost btn-sm"
+            onClick={onDuplicate}
+          >
+            Duplicate Session
           </button>
         )}
         {onDelete && (

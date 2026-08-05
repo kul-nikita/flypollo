@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { sessionsToCsv } from "../../lib/report";
 import { formatDate } from "../../lib/session";
 
@@ -8,6 +8,7 @@ export default function ReportsPage({ store }) {
   const [to, setTo] = useState("");
   const [generated, setGenerated] = useState(false);
   const [error, setError] = useState("");
+  const downloadLockRef = useRef(0);
 
   const filtered = sessions.filter((s) => {
     const date = s.sessionDate || "";
@@ -27,6 +28,9 @@ export default function ReportsPage({ store }) {
   }
 
   function downloadSummary() {
+    const now = Date.now();
+    if (now - downloadLockRef.current < 400) return;
+    downloadLockRef.current = now;
     const csv = sessionsToCsv(filtered);
     const blob = new Blob([`\uFEFF${csv}`], {
       type: "text/csv;charset=utf-8;",

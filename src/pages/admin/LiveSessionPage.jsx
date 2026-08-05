@@ -18,6 +18,7 @@ export default function LiveSessionPage({ store, onNavigate }) {
     totalAnswers,
     normalizedStatus,
     shareUrl,
+    navSaving,
     nextQuestion,
     prevQuestion,
     startSession,
@@ -157,9 +158,9 @@ export default function LiveSessionPage({ store, onNavigate }) {
             type="button"
             className="btn btn-secondary"
             onClick={prevQuestion}
-            disabled={live.questionIndex <= 0 || saving}
+            disabled={live.questionIndex <= 0 || navSaving}
           >
-            ← Prev
+            {navSaving ? "…" : "← Prev"}
           </button>
           <span className="live-status">
             Question {live.questionIndex + 1} of {questions.length}
@@ -168,9 +169,9 @@ export default function LiveSessionPage({ store, onNavigate }) {
             type="button"
             className="btn btn-secondary"
             onClick={nextQuestion}
-            disabled={live.questionIndex >= questions.length - 1 || saving}
+            disabled={live.questionIndex >= questions.length - 1 || navSaving}
           >
-            Next →
+            {navSaving ? "…" : "Next →"}
           </button>
         </div>
 
@@ -193,6 +194,17 @@ export default function LiveSessionPage({ store, onNavigate }) {
               disabled={saving}
             >
               End session
+            </button>
+          )}
+          {normalizedStatus === "completed" && (
+            <button
+              type="button"
+              className="btn btn-primary"
+              onClick={() =>
+                onNavigate("analytics", { sessionId: session.id })
+              }
+            >
+              View analytics
             </button>
           )}
           <button

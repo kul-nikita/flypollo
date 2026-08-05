@@ -8,6 +8,7 @@ const NAV_ITEMS = [
   { id: "create", label: "Create Session", icon: "➕" },
   { id: "live", label: "Live Session", icon: "📡" },
   { id: "history", label: "Session History", icon: "📚" },
+  { id: "analytics", label: "Analytics", icon: "📈" },
   { id: "reports", label: "Reports", icon: "📊" },
   { id: "participants", label: "Participants", icon: "👥" },
 ];

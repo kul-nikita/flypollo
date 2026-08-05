@@ -1,0 +1,222 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function normalizeStatus(status) {
+      return status == 'ready' ? 'published' :
+             (status == 'ended' ? 'completed' : status);
+    }
+
+    function validTransition(prevRaw, nextRaw) {
+      let prev = normalizeStatus(prevRaw);
+      let next = normalizeStatus(nextRaw);
+      return (prev == 'draft' && next in ['draft', 'published']) ||
+             (prev == 'published' && next in ['published', 'live', 'draft']) ||
+             (prev == 'live' && next in ['live', 'completed', 'draft']) ||
+             (prev == 'completed' && next in ['completed', 'draft']);
+    }
+
+    function isLiveSession(sessionId) {
+      let path = /databases/$(database)/documents/sessions/$(sessionId);
+      return exists(path) && get(path).data.status == 'live';
+    }
+
+    function validEmail(email) {
+      return email is string &&
+             email.matches('^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$');
+    }
+
+    function validQuestions() {
+      let questions = request.resource.data.questions;
+      if (!(questions is list)) return false;
+      for (let question in questions) {
+        if (!(question is map) ||
+            !question.keys().hasAll(['question', 'options', 'correctIndex']) ||
+            !(question.question is string) || question.question.size() == 0 ||
+            !(question.options is list) || question.options.size() != 4 ||
+            !(question.correctIndex is int) ||
+            question.correctIndex < 0 || question.correctIndex > 3) {
+          return false;
+        }
+        for (let option in question.options) {
+          if (!(option is string)) return false;
+        }
+      }
+      return true;
+    }
+
+    function validParticipantProfile() {
+      let d = request.resource.data;
+      return d.keys().hasAll(['participantId', 'name', 'email', 'createdAt']) &&
+             d.size() <= 6 &&
+             d.participantId is string && d.participantId.size() > 0 &&
+             d.name is string && d.name.size() > 0 &&
+             validEmail(d.email) &&
+             d.createdAt is string && d.createdAt.size() > 0 &&
+             (!d.keys().has('institution') || d.institution is string) &&
+             (!d.keys().has('designation') || d.designation is string);
+    }
+
+    function validAnswerWrite() {
+      let prev = resource == null ? {} : resource.data;
+      let delta = request.resource.data.diff(prev);
+      if (delta.removedKeys().size() > 0) return false;
+      let changed = delta.affectedKeys();
+      if (changed.size() > 1) return false;
+      for (let key in changed) {
+        if (prev.keys().has(key)) return false;
+        let entry = request.resource.data[key];
+        if (!(entry is map) ||
+            !entry.keys().hasAll(['selectedIndex', 'timestamp']) ||
+            (entry.keys().has('responseMs') && !(entry.responseMs is number)) ||
+            !(entry.selectedIndex is int) ||
+            entry.selectedIndex < 0 || entry.selectedIndex > 3 ||
+            !(entry.timestamp is string) || entry.timestamp.size() == 0) {
+          return false;
+        }
+      }
+      return true;
+    }
+
+    // Every session record (draft or published) carries the same field set.
+    function hasSessionShape(d) {
+      return d.keys().hasAll([
+        'sessionId', 'sessionName', 'description', 'sessionDate', 'status',
+        'published', 'createdAt', 'updatedAt', 'publishedAt', 'publishedBy',
+        'roomCode', 'shareUrl', 'qrUrl', 'questionCount', 'participantCount',
+        'questions', 'presenter', 'transcriptFilename', 'analytics', 'draftId'
+      ]);
+    }
+
+    function isDraft(d) {
+      return d != null && d.status == 'draft';
+    }
+
+    // A draft may be created (empty working copy) or edited in place.
+    function validDraftRecord() {
+      let d = request.resource.data;
+      return d.status == 'draft' &&
+             d.published == false &&
+             hasSessionShape(d) &&
+             d.sessionName is string &&
+             d.sessionDate is string &&
+             d.transcriptFilename is string &&
+             d.presenter is string &&
+             d.draftId is string &&
+             d.analytics is map &&
+             d.questionCount is int &&
+             d.questionCount == d.questions.size() &&
+             d.participantCount is int && d.participantCount >= 0 &&
+             validQuestions();
+    }
+
+    // A published snapshot is created once with content that never changes.
+    function validPublishedCreate() {
+      let d = request.resource.data;
+      return d.status == 'published' &&
+             d.published == true &&
+             hasSessionShape(d) &&
+             d.sessionName is string &&
+             d.sessionDate is string &&
+             d.publishedAt is string && d.publishedAt.size() > 0 &&
+             validEmail(d.publishedBy) &&
+             d.presenter is string && d.presenter.size() > 0 &&
+             d.transcriptFilename is string &&
+             d.roomCode is string && d.roomCode.size() > 0 &&
+             d.shareUrl is string && d.shareUrl.size() > 0 &&
+             d.qrUrl is string &&
+             d.draftId is string && d.draftId.size() > 0 &&
+             d.analytics is map &&
+             d.questionCount is int &&
+             d.questionCount == d.questions.size() &&
+             d.participantCount is int && d.participantCount >= 0 &&
+             validQuestions();
+    }
+
+    // Published/live/completed snapshots are content-immutable: only the
+    // lifecycle status, participant count, and analytics summary may change.
+    function validPublishedUpdate() {
+      let d = request.resource.data;
+      let p = resource.data;
+      return !isDraft(p) &&
+             d.status in ['published', 'live', 'completed'] &&
+             validTransition(p.status, d.status) &&
+             d.published == true &&
+             hasSessionShape(d) &&
+             d.sessionId == p.sessionId &&
+             d.sessionName == p.sessionName &&
+             d.description == p.description &&
+             d.sessionDate == p.sessionDate &&
+             d.roomCode == p.roomCode &&
+             d.shareUrl == p.shareUrl &&
+             d.qrUrl == p.qrUrl &&
+             d.publishedAt == p.publishedAt &&
+             d.publishedBy == p.publishedBy &&
+             d.presenter == p.presenter &&
+             d.transcriptFilename == p.transcriptFilename &&
+             d.createdAt == p.createdAt &&
+             d.draftId == p.draftId &&
+             d.questions == p.questions &&
+             d.questionCount == p.questionCount &&
+             d.updatedAt is string &&
+             d.participantCount is int && d.participantCount >= 0 &&
+             d.analytics is map &&
+             validQuestions();
+    }
+
+    // Any path not matched below is denied.
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // ---- Participant registry ----
+    // Participants register themselves by writing their own profile doc.
+    // The doc id is base64url(email), which rules cannot recompute, so we
+    // validate the shape of every write instead. The app never edits a
+    // profile after registration, so updates and deletes are denied.
+    match /participants/{docId} {
+      allow read: if true;
+      allow create: if validParticipantProfile();
+      allow update: if false;
+      allow delete: if false;
+    }
+
+    // ---- Sessions ----
+    // Two kinds of documents live here:
+    //  * draft  - the editable working copy, created and updated as a draft;
+    //  * published/live/completed - immutable snapshots created fresh on every
+    //    publish. Each publish writes a NEW document id; previous snapshots
+    //    are never overwritten. Room History reads these snapshot documents.
+    match /sessions/{sessionId} {
+      allow read: if true;
+
+      // A session doc is created either as a draft or as a published snapshot.
+      allow create: if
+        request.resource.data.sessionId == sessionId &&
+        (validDraftRecord() || validPublishedCreate());
+
+      // Drafts may be edited in place. Published snapshots may only move
+      // through their lifecycle (published -> live -> completed) and update
+      // their own participantCount/analytics.
+      allow update: if
+        request.resource.data.sessionId == sessionId &&
+        (isDraft(resource.data) ? validDraftRecord() : validPublishedUpdate());
+
+      // Deleting an in-progress session is not allowed.
+      allow delete: if normalizeStatus(resource.data.status) != 'live';
+
+      // ---- Per-question answers ----
+      // Each participant may add exactly one new entry per question, only
+      // while the session is live, and may never remove or overwrite an
+      // existing entry.
+      match /answers/{questionIndex} {
+        allow read: if true;
+        allow create, update: if
+          questionIndex.matches('^[0-9]+$') &&
+          isLiveSession(sessionId) &&
+          validAnswerWrite();
+        allow delete: if false;
+      }
+    }
+  }
+}

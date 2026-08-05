@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { isAdminEmail } from "../config/admin";
 import {
   findParticipantByEmail,
@@ -20,6 +20,7 @@ export default function Entry({ email, onBack, onAdmin, onParticipant }) {
     designation: "",
   });
   const [busy, setBusy] = useState(false);
+  const busyRef = useRef(false);
   const [error, setError] = useState("");
   const { showToast } = useToast();
 
@@ -80,6 +81,8 @@ export default function Entry({ email, onBack, onAdmin, onParticipant }) {
   }
 
   async function confirmReturn() {
+    if (busyRef.current) return;
+    busyRef.current = true;
     setBusy(true);
     setError("");
     try {
@@ -96,11 +99,14 @@ export default function Entry({ email, onBack, onAdmin, onParticipant }) {
       setError(err.message);
       showToast(err.message, "error");
       setBusy(false);
+      busyRef.current = false;
     }
   }
 
   async function handleRegister(event) {
     event.preventDefault();
+    if (busyRef.current) return;
+    busyRef.current = true;
     setBusy(true);
     setError("");
     try {
@@ -119,6 +125,7 @@ export default function Entry({ email, onBack, onAdmin, onParticipant }) {
       setError(err.message);
       showToast(err.message, "error");
       setBusy(false);
+      busyRef.current = false;
     }
   }
 

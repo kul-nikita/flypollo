@@ -6,7 +6,7 @@ import {
 } from "firebase/firestore";
 import { normalizeStatus, sessionShareUrl } from "./session";
 
-async function readAnswersByQuestion(db, sessionId) {
+export async function readAnswersByQuestion(db, sessionId) {
   const snap = await getDocs(collection(db, "sessions", sessionId, "answers"));
   const map = new Map();
   for (const doc of snap.docs) {
@@ -76,6 +76,7 @@ export async function listSessions(db) {
       description: data.description || "",
       sessionDate: data.sessionDate || doc.id,
       status: normalizeStatus(data.status),
+      published: Boolean(data.published),
       roomCode: data.roomCode || "",
       shareUrl:
         data.shareUrl ||
@@ -89,6 +90,10 @@ export async function listSessions(db) {
           )
         : 0,
       publishedAt: data.publishedAt || "",
+      presenter: data.presenter || "",
+      transcriptFilename: data.transcriptFilename || "",
+      analytics: data.analytics || {},
+      draftId: data.draftId || "",
       questions,
       rows,
     });

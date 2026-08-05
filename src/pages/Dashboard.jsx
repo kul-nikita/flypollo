@@ -2,13 +2,12 @@ import { useEffect, useRef, useState } from "react";
 import { doc, getDoc, setDoc } from "firebase/firestore";
 import { ref, onValue } from "firebase/database";
 import { db, database, configured } from "../firebase";
-import { sessionDocId, formatDate } from "../lib/session";
+import { formatDate } from "../lib/session";
+import { DEFAULT_LIVE, livePath } from "../lib/live";
 import { findSessionByRoomCode, saveJoinedSession } from "../lib/participant";
 import { listParticipantSessions } from "../lib/report";
 import { useToast } from "../components/Toasts";
 import ConfirmDialog from "../components/ConfirmDialog";
-
-const DEFAULT_LIVE = { questionIndex: 0, status: "idle" };
 
 function ConnectionPill({ connected }) {
   return (
@@ -146,6 +145,8 @@ export default function Dashboard({
   const [pastSessions, setPastSessions] = useState([]);
   const [sessionsLoading, setSessionsLoading] = useState(true);
   const autoJoinTried = useRef(false);
+  const joinLockRef = useRef(false);
+  const answerLockRef = useRef(false);
   const { showToast } = useToast();
 
   useEffect(() => {
@@ -157,10 +158,14 @@ export default function Dashboard({
     return () => off();
   }, []);
 
+  const liveSessionId = joinedSession?.sessionId || null;
+
   useEffect(() => {
-    if (!configured || !database) return;
-    const liveRef = ref(database, "session/live");
-    const off = onValue(liveRef, (snap) => {
+    if (!configured || !database || !liveSessionId) {
+      setLive(DEFAULT_LIVE);
+      return;
+    }
+    const off = onValue(ref(database, livePath(liveSessionId)), (snap) => {
       const value = snap.val();
       if (value && typeof value.status === "string") {
         setLive(value);
@@ -169,9 +174,7 @@ export default function Dashboard({
       }
     });
     return () => off();
-  }, []);
-
-  const liveSessionId = sessionDocId(live);
+  }, [liveSessionId]);
 
   useEffect(() => {
     if (live.status !== "live" || !liveSessionId) return;
@@ -245,11 +248,13 @@ export default function Dashboard({
   }, []);
 
   async function joinRoom(code) {
+    if (joinLockRef.current) return;
     const normalized = String(code || "").trim().toUpperCase();
     if (!normalized) {
       setJoinError("Enter the room code shown by your presenter.");
       return;
     }
+    joinLockRef.current = true;
     setJoining(true);
     setJoinError("");
     try {
@@ -272,6 +277,7 @@ export default function Dashboard({
       showToast(err.message, "error");
     } finally {
       setJoining(false);
+      joinLockRef.current = false;
     }
   }
 
@@ -293,11 +299,16 @@ export default function Dashboard({
 
   async function handleAnswer(optionIndex) {
     if (!profile || live.status !== "live") return;
+    if (answerLockRef.current) return;
     const qIndex = live.questionIndex;
     if (submitted[qIndex] !== undefined || selectedAnswer !== null) return;
+    answerLockRef.current = true;
     setError("");
     setSaving(true);
     setSelectedAnswer(optionIndex);
+    const shownAt = Number(live.questionShownAt) || null;
+    const responseMs =
+      shownAt && shownAt > 0 ? Math.max(0, Date.now() - shownAt) : null;
     try {
       await setDoc(
         doc(db, "sessions", liveSessionId, "answers", String(qIndex)),
@@ -305,6 +316,7 @@ export default function Dashboard({
           [profile.participantId]: {
             selectedIndex: optionIndex,
             timestamp: new Date().toISOString(),
+            ...(responseMs !== null ? { responseMs } : {}),
           },
         },
         { merge: true }
@@ -317,6 +329,7 @@ export default function Dashboard({
       showToast(err.message, "error");
     } finally {
       setSaving(false);
+      answerLockRef.current = false;
     }
   }
 

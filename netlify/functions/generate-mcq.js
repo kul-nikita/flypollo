@@ -203,12 +203,12 @@ function validateQuestions(value) {
   });
 }
 
-export default async function handler(event) {
-  if (event.httpMethod === "OPTIONS") {
+export default async function handler(req) {
+  if (req.method === "OPTIONS") {
     return new Response(null, { status: 200, headers });
   }
 
-  if (event.httpMethod !== "POST") {
+  if (req.method !== "POST") {
     return jsonResponse(405, { error: "Method not allowed" });
   }
 
@@ -223,8 +223,8 @@ export default async function handler(event) {
 
   let transcript = "";
   try {
-    const body = JSON.parse(event.body || "{}");
-    transcript = String(body.transcript ?? "").trim();
+    const body = await req.json();
+    transcript = String(body?.transcript ?? "").trim();
   } catch {
     transcript = "";
   }

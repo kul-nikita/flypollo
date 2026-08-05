@@ -20,11 +20,11 @@ afterEach(() => {
 });
 
 function postEvent(body) {
-  return {
-    httpMethod: "POST",
+  return new Request("https://flypollo.netlify.app/.netlify/functions/generate-mcq", {
+    method: "POST",
     headers: { "content-type": "application/json" },
     body: typeof body === "string" ? body : JSON.stringify(body),
-  };
+  });
 }
 
 async function invoke(event) {
@@ -492,14 +492,22 @@ describe("generate-mcq.js", () => {
   });
 
   test("responds to CORS preflight (OPTIONS)", async () => {
-    const res = await invoke({ httpMethod: "OPTIONS", headers: {} });
+    const res = await invoke(
+      new Request("https://flypollo.netlify.app/.netlify/functions/generate-mcq", {
+        method: "OPTIONS",
+      })
+    );
     assert.equal(res.statusCode, 200);
     assert.equal(res.headers.get("Access-Control-Allow-Origin"), "*");
     assert.equal(res.headers.get("Access-Control-Allow-Headers"), "Content-Type");
   });
 
   test("rejects non-POST methods with 405", async () => {
-    const res = await invoke({ httpMethod: "GET", headers: {} });
+    const res = await invoke(
+      new Request("https://flypollo.netlify.app/.netlify/functions/generate-mcq", {
+        method: "GET",
+      })
+    );
     assert.equal(res.statusCode, 405);
     assert.match(res.body.error, /Method not allowed/);
   });

@@ -162,12 +162,12 @@ function validateQuestion(value) {
   return { question, options, answer_index: answerIndex, explanation };
 }
 
-export default async function handler(event) {
-  if (event.httpMethod === "OPTIONS") {
+export default async function handler(req) {
+  if (req.method === "OPTIONS") {
     return new Response(null, { status: 200, headers });
   }
 
-  if (event.httpMethod !== "POST") {
+  if (req.method !== "POST") {
     return jsonResponse(405, { error: "Method not allowed" });
   }
 
@@ -182,7 +182,7 @@ export default async function handler(event) {
 
   let topic = "hospital safety";
   try {
-    const body = JSON.parse(event.body || "{}");
+    const body = await req.json();
     if (body.topic) topic = String(body.topic).slice(0, 200);
   } catch {
     topic = "hospital safety";

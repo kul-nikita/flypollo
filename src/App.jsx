@@ -3,6 +3,7 @@ import Logo from "./components/Logo";
 import Landing from "./pages/Landing";
 import Entry from "./pages/Entry";
 import Dashboard from "./pages/Dashboard";
+import Profile from "./pages/Profile";
 import Admin from "./pages/Admin";
 import { isAdminEmail } from "./config/admin";
 import {
@@ -10,6 +11,7 @@ import {
   loadAdminEmail,
   loadJoinedSession,
   loadSavedProfile,
+  saveProfile,
 } from "./lib/participant";
 
 function parseRoomParam() {
@@ -105,7 +107,32 @@ export default function App() {
                     joinedSession: session,
                   })
                 }
+                onProfile={() =>
+                  setView({ name: "profile", profile: view.profile })
+                }
                 onSignOut={onSignOut}
+              />
+            )}
+            {view.name === "profile" && (
+              <Profile
+                profile={view.profile}
+                onBack={() =>
+                  setView({
+                    name: "dashboard",
+                    profile: view.profile,
+                    joinedSession: loadJoinedSession(),
+                    initialRoomCode: "",
+                  })
+                }
+                onSaved={(updated) => {
+                  saveProfile(updated);
+                  setView({
+                    name: "dashboard",
+                    profile: updated,
+                    joinedSession: loadJoinedSession(),
+                    initialRoomCode: "",
+                  });
+                }}
               />
             )}
           </main>

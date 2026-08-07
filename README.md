@@ -168,7 +168,8 @@ Entering an email on the landing page routes to:
 1. **Admin** — if the email is in `VITE_ADMIN_EMAILS` (or the built-in
    fallback whitelist). Opens the Presenter Console immediately.
 2. **Returning participant** — if a valid profile exists in localStorage, or a
-   matching profile is found in Firestore (full name confirmation required).
+   matching profile is found in Firestore. Opens the Participant Dashboard
+   directly.
 3. **New participant** — registration form (name, email, institution,
    designation).
 

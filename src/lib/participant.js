@@ -157,3 +157,18 @@ export async function registerParticipant({ name, email, institution, designatio
   await setDoc(refDoc, profile);
   return toProfile(profile);
 }
+
+export async function updateParticipant(profile) {
+  const normalizedEmail = String(profile.email).trim().toLowerCase();
+  const refDoc = doc(db, "participants", emailToDocId(normalizedEmail));
+  const updated = {
+    participantId: profile.participantId,
+    name: String(profile.name).trim(),
+    email: normalizedEmail,
+    institution: String(profile.institution).trim(),
+    designation: String(profile.designation).trim(),
+    createdAt: profile.createdAt,
+  };
+  await setDoc(refDoc, updated);
+  return toProfile(updated);
+}

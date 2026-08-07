@@ -127,6 +127,7 @@ export default function Dashboard({
   joinedSession,
   initialRoomCode = "",
   onJoined,
+  onProfile,
   onSignOut,
 }) {
   const [connected, setConnected] = useState(false);
@@ -459,6 +460,13 @@ export default function Dashboard({
         </div>
         <div className="pdash-head-actions">
           <ConnectionPill connected={connected} />
+          <button
+            type="button"
+            className="btn btn-ghost btn-sm"
+            onClick={onProfile}
+          >
+            Profile
+          </button>
           <button
             type="button"
             className="btn btn-ghost btn-sm"

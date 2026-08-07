@@ -1648,6 +1648,7 @@ textarea {
 .stat-card {
   display: flex;
   flex-direction: column;
+  min-width: 0;
   gap: 0.15rem;
   background: var(--surface-2);
   border: 1px solid var(--border);
@@ -1656,9 +1657,12 @@ textarea {
 }
 
 .stat-value {
+  min-width: 0;
   font-size: 1.6rem;
   font-weight: 800;
+  line-height: 1.2;
   color: var(--brand-darker);
+  overflow-wrap: anywhere;
 }
 
 .stat-label {
@@ -2522,6 +2526,14 @@ textarea {
   opacity: 0.6;
 }
 
+.profile-form-actions {
+  display: flex;
+  gap: 0.6rem;
+  align-items: center;
+  margin-top: 0.5rem;
+  flex-wrap: wrap;
+}
+
 .quickjoin-or {
   display: flex;
   align-items: center;
@@ -2794,6 +2806,30 @@ textarea {
   font-size: 0.85em;
   letter-spacing: 0.02em;
   overflow-wrap: anywhere;
+}
+
+.ana-stat-grid {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.ana-stat-grid .stat-card:last-child {
+  grid-column: span 2;
+}
+
+@media (max-width: 760px) {
+  .ana-stat-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 460px) {
+  .ana-stat-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .ana-stat-grid .stat-card:last-child {
+    grid-column: auto;
+  }
 }
 
 .ana-sort {
@@ -3069,4 +3105,3 @@ textarea {
 .ana-wrong-hint strong {
   color: var(--text);
 }
-

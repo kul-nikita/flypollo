@@ -12,7 +12,6 @@ import { useToast } from "../components/Toasts";
 
 export default function Entry({ email, onBack, onAdmin, onParticipant }) {
   const [step, setStep] = useState("resolving");
-  const [existing, setExisting] = useState(null);
   const [form, setForm] = useState({
     name: "",
     email: email || "",
@@ -50,9 +49,7 @@ export default function Entry({ email, onBack, onAdmin, onParticipant }) {
         const profile = await findParticipantByEmail(normalizedEmail);
         if (cancelled) return;
         if (profile) {
-          setExisting(profile);
-          setForm((current) => ({ ...current, name: profile.name || "" }));
-          setStep("confirm");
+          onParticipant(profile);
         } else {
           setForm((current) => ({
             ...current,
@@ -78,29 +75,6 @@ export default function Entry({ email, onBack, onAdmin, onParticipant }) {
 
   function updateField(field, value) {
     setForm((current) => ({ ...current, [field]: value }));
-  }
-
-  async function confirmReturn() {
-    if (busyRef.current) return;
-    busyRef.current = true;
-    setBusy(true);
-    setError("");
-    try {
-      const entered = form.name.trim().toLowerCase();
-      if (!entered) {
-        throw new Error("Enter your full name to continue.");
-      }
-      if (entered !== (existing.name || "").trim().toLowerCase()) {
-        throw new Error("That name doesn't match our records. Try again.");
-      }
-      saveProfile(existing);
-      onParticipant(existing);
-    } catch (err) {
-      setError(err.message);
-      showToast(err.message, "error");
-      setBusy(false);
-      busyRef.current = false;
-    }
   }
 
   async function handleRegister(event) {
@@ -134,38 +108,6 @@ export default function Entry({ email, onBack, onAdmin, onParticipant }) {
       <div className="flow-card">
         <div className="spinner" aria-hidden="true" />
         <p className="flow-title">Checking your details…</p>
-      </div>
-    );
-  }
-
-  if (step === "confirm") {
-    return (
-      <div className="flow-card flow-narrow">
-        <h1 className="flow-heading">Welcome back</h1>
-        <p className="flow-sub">
-          We found a profile for <strong>{normalizedEmail}</strong>. Confirm
-          your full name to continue.
-        </p>
-        <form className="form" onSubmit={(event) => { event.preventDefault(); confirmReturn(); }}>
-          <label className="field">
-            <span className="field-label">Full name</span>
-            <input
-              type="text"
-              value={form.name}
-              onChange={(event) => updateField("name", event.target.value)}
-              placeholder="e.g. Ada Lovelace"
-              autoComplete="name"
-              required
-            />
-          </label>
-          {error && <p className="error" role="alert">{error}</p>}
-          <button type="submit" className="btn btn-primary btn-block" disabled={busy}>
-            {busy ? "Confirming…" : "Confirm"}
-          </button>
-          <button type="button" className="btn btn-ghost btn-block" onClick={onBack} disabled={busy}>
-            Use a different email
-          </button>
-        </form>
       </div>
     );
   }

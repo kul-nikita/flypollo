@@ -222,7 +222,7 @@ export default function AnalyticsPage({ sessionId, onBack }) {
         <div className="adb-section-head">
           <h2 className="adb-card-title">Overview</h2>
         </div>
-        <div className="stat-grid">
+        <div className="stat-grid ana-stat-grid">
           <StatCard label="Session Name" value={session.sessionName} />
           <StatCard
             label="Date"

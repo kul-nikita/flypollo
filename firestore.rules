@@ -41,12 +41,8 @@ service cloud.firestore {
 
     // Rules v2 cannot iterate over lists, so each position is checked
     // explicitly up to a safe maximum.
-    function validQuestions() {
-      let questions = request.resource.data.questions;
-      return questions is list &&
-             questions.size() > 0 &&
-             questions.size() <= 50 &&
-             (questions.size() < 1 || validQuestion(questions[0])) &&
+    function validQuestionList(questions) {
+      return (questions.size() < 1 || validQuestion(questions[0])) &&
              (questions.size() < 2 || validQuestion(questions[1])) &&
              (questions.size() < 3 || validQuestion(questions[2])) &&
              (questions.size() < 4 || validQuestion(questions[3])) &&
@@ -98,6 +94,24 @@ service cloud.firestore {
              (questions.size() < 50 || validQuestion(questions[49]));
     }
 
+    // Drafts are created empty and grow as questions are added, so the
+    // question list may be empty.
+    function validDraftQuestions() {
+      let questions = request.resource.data.questions;
+      return questions is list &&
+             questions.size() <= 50 &&
+             validQuestionList(questions);
+    }
+
+    // A published snapshot must always have real content.
+    function validPublishedQuestions() {
+      let questions = request.resource.data.questions;
+      return questions is list &&
+             questions.size() > 0 &&
+             questions.size() <= 50 &&
+             validQuestionList(questions);
+    }
+
     function validParticipantProfile() {
       let d = request.resource.data;
       return d.keys().hasAll(['participantId', 'name', 'email', 'createdAt']) &&
@@ -128,7 +142,7 @@ service cloud.firestore {
              (!added[0].keys().has('responseMs') || added[0].responseMs is number);
     }
 
-    // Every session record (draft or published) carries the same field set.
+    // Every published snapshot carries the full field set.
     function hasSessionShape(d) {
       return d.keys().hasAll([
         'sessionId', 'sessionName', 'description', 'sessionDate', 'status',
@@ -142,22 +156,34 @@ service cloud.firestore {
       return d != null && d.status == 'draft';
     }
 
-    // A draft may be created (empty working copy) or edited in place.
+    // A draft is the editable working copy. It may be created empty and is
+    // edited in place with partial (merge) writes, so only the core fields
+    // are mandatory; publish-time fields are validated only when present.
     function validDraftRecord() {
       let d = request.resource.data;
       return d.status == 'draft' &&
              d.published == false &&
-             hasSessionShape(d) &&
+             d.keys().hasAll([
+               'sessionId', 'sessionName', 'sessionDate', 'status',
+               'published', 'createdAt', 'updatedAt', 'questionCount',
+               'participantCount', 'questions'
+             ]) &&
              d.sessionName is string &&
              d.sessionDate is string &&
-             d.transcriptFilename is string &&
-             d.presenter is string &&
-             d.draftId is string &&
-             d.analytics is map &&
+             (!('description' in d.keys()) || d.description is string) &&
+             (!('presenter' in d.keys()) || d.presenter is string) &&
+             (!('transcriptFilename' in d.keys()) || d.transcriptFilename is string) &&
+             (!('draftId' in d.keys()) || d.draftId is string) &&
+             (!('analytics' in d.keys()) || d.analytics is map) &&
+             (!('roomCode' in d.keys()) || d.roomCode is string) &&
+             (!('shareUrl' in d.keys()) || d.shareUrl is string) &&
+             (!('qrUrl' in d.keys()) || d.qrUrl is string) &&
+             (!('publishedAt' in d.keys()) || d.publishedAt is string) &&
+             (!('publishedBy' in d.keys()) || d.publishedBy is string) &&
              d.questionCount is int &&
              d.questionCount == d.questions.size() &&
              d.participantCount is int && d.participantCount >= 0 &&
-             validQuestions();
+             validDraftQuestions();
     }
 
     // A published snapshot is created once with content that never changes.
@@ -180,7 +206,7 @@ service cloud.firestore {
              d.questionCount is int &&
              d.questionCount == d.questions.size() &&
              d.participantCount is int && d.participantCount >= 0 &&
-             validQuestions();
+             validPublishedQuestions();
     }
 
     // Published/live/completed snapshots are content-immutable: only the
@@ -211,7 +237,7 @@ service cloud.firestore {
              d.updatedAt is string &&
              d.participantCount is int && d.participantCount >= 0 &&
              d.analytics is map &&
-             validQuestions();
+             validPublishedQuestions();
     }
 
     // Any path not matched below is denied.

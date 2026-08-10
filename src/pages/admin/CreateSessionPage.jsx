@@ -1,5 +1,8 @@
 import { defaultSessionName } from "../../lib/session";
-import { validationError } from "../../lib/useAdminStore";
+import {
+  validationError,
+  QUESTION_TYPES,
+} from "../../lib/useAdminStore";
 
 const STEPPER = [
   { label: "Create" },
@@ -26,6 +29,9 @@ export default function CreateSessionPage({ store, onNavigate }) {
     updateQuestion,
     updateOption,
     addQuestion,
+    addPollOption,
+    removePollOption,
+    setQuestionType,
     startOver,
     saveDraft,
     selectSession,
@@ -274,6 +280,46 @@ export default function CreateSessionPage({ store, onNavigate }) {
                     Delete
                   </button>
                 </div>
+                <div className="question-settings">
+                  <label className="field">
+                    <span className="field-label">Type</span>
+                    <select
+                      value={q.type}
+                      onChange={(event) =>
+                        setQuestionType(index, event.target.value)
+                      }
+                      aria-label={`Type of question ${index + 1}`}
+                    >
+                      <option value={QUESTION_TYPES.mcq}>
+                        Multiple choice
+                      </option>
+                      <option value={QUESTION_TYPES.poll}>Poll</option>
+                      <option value={QUESTION_TYPES.wordcloud}>
+                        Word cloud
+                      </option>
+                    </select>
+                  </label>
+                  <label className="field">
+                    <span className="field-label">
+                      Timer (seconds, 0 = no timer)
+                    </span>
+                    <input
+                      type="number"
+                      min={0}
+                      max={300}
+                      value={q.timerSeconds}
+                      onChange={(event) =>
+                        updateQuestion(index, {
+                          timerSeconds: Math.min(
+                            300,
+                            Math.max(0, Number(event.target.value) || 0)
+                          ),
+                        })
+                      }
+                      aria-label={`Timer for question ${index + 1}`}
+                    />
+                  </label>
+                </div>
                 <label className="field">
                   <span className="field-label">Question</span>
                   <textarea
@@ -285,49 +331,95 @@ export default function CreateSessionPage({ store, onNavigate }) {
                     aria-label={`Question ${index + 1}`}
                   />
                 </label>
-                <div className="option-list">
-                  {q.options.map((option, optionIndex) => (
-                    <div className="option-row" key={optionIndex}>
-                      <input
-                        type="radio"
-                        name={`correct-${index}`}
-                        checked={q.correctIndex === optionIndex}
-                        onChange={() =>
-                          updateQuestion(index, {
-                            correctIndex: optionIndex,
-                          })
-                        }
-                        aria-label={`Mark option ${optionIndex + 1} as correct`}
-                      />
-                      <input
-                        type="text"
-                        value={option}
-                        onChange={(event) =>
-                          updateQuestion(index, {
-                            options: q.options.map((opt, oi) =>
-                              oi === optionIndex ? event.target.value : opt
-                            ),
-                          })
-                        }
-                        aria-label={`Option ${optionIndex + 1}`}
-                        placeholder={`Option ${optionIndex + 1}`}
-                      />
-                    </div>
-                  ))}
-                </div>
-                <p className="field-hint">
-                  The highlighted circle marks the correct answer.
-                </p>
+                {q.type === "wordcloud" ? (
+                  <p className="field-hint">
+                    Participants type a word or short phrase. No options
+                    needed.
+                  </p>
+                ) : (
+                  <div className="option-list">
+                    {q.options.map((option, optionIndex) => (
+                      <div className="option-row" key={optionIndex}>
+                        {q.type === "mcq" && (
+                          <input
+                            type="radio"
+                            name={`correct-${index}`}
+                            checked={q.correctIndex === optionIndex}
+                            onChange={() =>
+                              updateQuestion(index, {
+                                correctIndex: optionIndex,
+                              })
+                            }
+                            aria-label={`Mark option ${optionIndex + 1} as correct`}
+                          />
+                        )}
+                        <input
+                          type="text"
+                          value={option}
+                          onChange={(event) =>
+                            updateQuestion(index, {
+                              options: q.options.map((opt, oi) =>
+                                oi === optionIndex ? event.target.value : opt
+                              ),
+                            })
+                          }
+                          aria-label={`Option ${optionIndex + 1}`}
+                          placeholder={`Option ${optionIndex + 1}`}
+                        />
+                        {q.type === "poll" && q.options.length > 2 && (
+                          <button
+                            type="button"
+                            className="btn btn-ghost btn-sm"
+                            onClick={() => removePollOption(index, optionIndex)}
+                            aria-label={`Remove option ${optionIndex + 1}`}
+                          >
+                            ✕
+                          </button>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                )}
+                {q.type === "poll" && (
+                  <button
+                    type="button"
+                    className="btn btn-secondary btn-sm"
+                    onClick={() => addPollOption(index)}
+                  >
+                    + Add option
+                  </button>
+                )}
+                {q.type === "mcq" && (
+                  <p className="field-hint">
+                    The highlighted circle marks the correct answer.
+                  </p>
+                )}
               </div>
             ))}
           </div>
-          <button
-            type="button"
-            className="btn btn-secondary"
-            onClick={addQuestion}
-          >
-            + Add question
-          </button>
+          <div className="question-add-buttons">
+            <button
+              type="button"
+              className="btn btn-secondary"
+              onClick={addQuestion}
+            >
+              + Add question
+            </button>
+            <button
+              type="button"
+              className="btn btn-secondary"
+              onClick={() => addQuestion(QUESTION_TYPES.poll)}
+            >
+              + Add poll
+            </button>
+            <button
+              type="button"
+              className="btn btn-secondary"
+              onClick={() => addQuestion(QUESTION_TYPES.wordcloud)}
+            >
+              + Add word cloud
+            </button>
+          </div>
         </>
       )}
     </div>

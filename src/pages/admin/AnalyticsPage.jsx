@@ -409,20 +409,26 @@ export default function AnalyticsPage({ sessionId, onBack }) {
                   )}
                 </div>
                 <h3 className="ana-question-text">{q.question}</h3>
-                <p className="ana-correct-line">
-                  Correct answer:{" "}
-                  <strong>
-                    {optionLetter(q.correctIndex)} —{" "}
-                    {q.options[q.correctIndex] || "—"}
-                  </strong>
-                </p>
+                {q.correctIndex >= 0 && (
+                  <p className="ana-correct-line">
+                    Correct answer:{" "}
+                    <strong>
+                      {optionLetter(q.correctIndex)} —{" "}
+                      {q.options[q.correctIndex] || "—"}
+                    </strong>
+                  </p>
+                )}
                 <div className="ana-correct-metrics">
-                  <span className="ana-metric ana-metric-good">
-                    Correct {q.correctPct}%
-                  </span>
-                  <span className="ana-metric ana-metric-bad">
-                    Incorrect {q.incorrectPct}%
-                  </span>
+                  {q.correctPct != null && (
+                    <>
+                      <span className="ana-metric ana-metric-good">
+                        Correct {q.correctPct}%
+                      </span>
+                      <span className="ana-metric ana-metric-bad">
+                        Incorrect {q.incorrectPct}%
+                      </span>
+                    </>
+                  )}
                   <span className="ana-metric">
                     {q.answered} response{q.answered === 1 ? "" : "s"}
                   </span>
@@ -432,47 +438,58 @@ export default function AnalyticsPage({ sessionId, onBack }) {
                     </span>
                   )}
                 </div>
-                <div className="ana-distribution">
-                  {q.options.map((option, optionIndex) => {
-                    const count = q.counts[optionIndex] || 0;
-                    const pct = q.answered
-                      ? Math.round((count / q.answered) * 100)
-                      : 0;
-                    return (
-                      <div className="answer-bar" key={optionIndex}>
-                        <div className="answer-bar-label">
-                          <span>
-                            <strong>{optionLetter(optionIndex)}</strong> —{" "}
-                            {option}
-                          </span>
-                          <span>
-                            {count} · {pct}%
-                          </span>
+                {q.words && q.words.length > 0 ? (
+                  <ul className="wordcloud-list">
+                    {q.words.map(({ word, count }) => (
+                      <li className="wordcloud-item" key={word}>
+                        <span className="wordcloud-word">{word}</span>
+                        <span className="wordcloud-count">{count}</span>
+                      </li>
+                    ))}
+                  </ul>
+                ) : (
+                  <div className="ana-distribution">
+                    {q.options.map((option, optionIndex) => {
+                      const count = q.counts[optionIndex] || 0;
+                      const pct = q.answered
+                        ? Math.round((count / q.answered) * 100)
+                        : 0;
+                      return (
+                        <div className="answer-bar" key={optionIndex}>
+                          <div className="answer-bar-label">
+                            <span>
+                              <strong>{optionLetter(optionIndex)}</strong> —{" "}
+                              {option}
+                            </span>
+                            <span>
+                              {count} · {pct}%
+                            </span>
+                          </div>
+                          <div className="answer-bar-track">
+                            <div
+                              className={`answer-bar-fill${
+                                optionIndex === q.correctIndex
+                                  ? " correct"
+                                  : ""
+                              }`}
+                              style={{ width: `${pct}%` }}
+                            />
+                          </div>
                         </div>
-                        <div className="answer-bar-track">
-                          <div
-                            className={`answer-bar-fill${
-                              optionIndex === q.correctIndex ? " correct" : ""
-                            }`}
-                            style={{ width: `${pct}%` }}
-                          />
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-                <p className="ana-wrong-hint">
-                  Most chosen wrong answer:{" "}
-                  {q.mostChosenWrong ? (
+                      );
+                    })}
+                  </div>
+                )}
+                {q.mostChosenWrong && (
+                  <p className="ana-wrong-hint">
+                    Most chosen wrong answer:{" "}
                     <strong>
                       {optionLetter(q.mostChosenWrong.optionIndex)} —{" "}
                       {q.mostChosenWrong.text} ({q.mostChosenWrong.count}{" "}
                       answer{q.mostChosenWrong.count === 1 ? "" : "s"})
                     </strong>
-                  ) : (
-                    "None"
-                  )}
-                </p>
+                  </p>
+                )}
               </div>
             ))}
           </div>

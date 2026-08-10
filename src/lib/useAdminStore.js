@@ -7,7 +7,7 @@ import {
   onSnapshot,
   setDoc,
 } from "firebase/firestore";
-import { ref, onValue, get } from "firebase/database";
+import { ref, onValue, get, set } from "firebase/database";
 import { db, database, configured } from "../firebase";
 import {
   todayLocal,
@@ -27,29 +27,23 @@ import {
 } from "./report";
 import { useToast } from "../components/Toasts";
 
+import {
+  emptyQuestion,
+  normalizeQuestion,
+  validationError,
+} from "./questions";
+
 export const FUNCTION_URL = "/.netlify/functions/generate-mcq";
 export const MAX_FILE_BYTES = 2 * 1024 * 1024;
 export { DEFAULT_LIVE };
-
-export function emptyQuestion() {
-  return { question: "", options: ["", "", "", ""], correctIndex: 0 };
-}
-
-export function validationError(questions) {
-  if (questions.length === 0) {
-    return "Add at least one question before continuing.";
-  }
-  const invalid = questions.some(
-    (q) =>
-      !q.question.trim() ||
-      q.options.length !== 4 ||
-      q.options.some((option) => !option.trim())
-  );
-  if (invalid) {
-    return "Every question needs text and 4 non-empty options.";
-  }
-  return "";
-}
+export {
+  QUESTION_TYPES,
+  DEFAULT_TIMER_SECONDS,
+  emptyQuestion,
+  normalizeQuestion,
+  normalizeQuestions,
+  validationError,
+} from "./questions";
 
 export function useAdminStore(adminEmail) {
   const [loading, setLoading] = useState(true);
@@ -69,8 +63,9 @@ export function useAdminStore(adminEmail) {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const [qrDataUrl, setQrDataUrl] = useState("");
-  const [answerCounts, setAnswerCounts] = useState([0, 0, 0, 0]);
+  const [currentAnswers, setCurrentAnswers] = useState({});
   const [participantCount, setParticipantCount] = useState(0);
+  const [reactions, setReactions] = useState({});
   const [confirm, setConfirm] = useState({ kind: null, index: null });
   const [recoveredLiveId, setRecoveredLiveId] = useState(null);
   const [navSaving, setNavSaving] = useState(false);
@@ -130,7 +125,7 @@ export function useAdminStore(adminEmail) {
           if (!cancelled && value && typeof value.status === "string") {
             if (value.status === "live") {
               setSession(liveCandidate);
-              setQuestions(liveCandidate.questions || []);
+              setQuestions((liveCandidate.questions || []).map(normalizeQuestion));
               setRecoveredLiveId(liveCandidate.id);
               return;
             }
@@ -141,7 +136,7 @@ export function useAdminStore(adminEmail) {
           list[0];
         if (current) {
           setSession(current);
-          setQuestions(current.questions);
+          setQuestions((current.questions || []).map(normalizeQuestion));
         }
       })
       .catch((err) => {
@@ -224,20 +219,7 @@ export function useAdminStore(adminEmail) {
     const unsub = onSnapshot(
       answersRef,
       (snap) => {
-        const data = snap.data() || {};
-        const counts = [0, 0, 0, 0];
-        for (const key of Object.keys(data)) {
-          const entry = data[key];
-          if (
-            entry &&
-            Number.isInteger(entry.selectedIndex) &&
-            entry.selectedIndex >= 0 &&
-            entry.selectedIndex <= 3
-          ) {
-            counts[entry.selectedIndex] += 1;
-          }
-        }
-        setAnswerCounts(counts);
+        setCurrentAnswers(snap.data() || {});
       },
       (err) => {
         setError(err.message);
@@ -246,6 +228,18 @@ export function useAdminStore(adminEmail) {
     );
     return () => unsub();
   }, [liveSessionId, live.questionIndex, normalizedStatus, showToast]);
+
+  useEffect(() => {
+    if (!configured || !database || !session?.id || normalizedStatus === "draft") {
+      setReactions({});
+      return undefined;
+    }
+    const reactionsRef = ref(database, `sessions/${session.id}/reactions`);
+    const offReactions = onValue(reactionsRef, (snap) => {
+      setReactions(snap.val() || {});
+    });
+    return () => offReactions();
+  }, [session?.id, normalizedStatus]);
 
   useEffect(() => {
     if (normalizedStatus === "draft" || !session?.id || !configured || !db) {
@@ -294,7 +288,18 @@ export function useAdminStore(adminEmail) {
     normalizedStatus !== "draft" && questions.length > 0
       ? questions[Math.min(Math.max(live.questionIndex, 0), questions.length - 1)]
       : null;
-  const totalAnswers = answerCounts.reduce((sum, count) => sum + count, 0);
+  const totalAnswers = Object.values(currentAnswers).filter(
+    (entry) =>
+      entry &&
+      (Number.isInteger(entry.selectedIndex) ||
+        (typeof entry.text === "string" && entry.text.trim()))
+  ).length;
+  const answerCounts = Object.values(currentAnswers).reduce((counts, entry) => {
+    if (entry && Number.isInteger(entry.selectedIndex)) {
+      counts[entry.selectedIndex] = (counts[entry.selectedIndex] || 0) + 1;
+    }
+    return counts;
+  }, []);
 
   function writeLive(patch) {
     if (!configured || !database || !session?.id) return Promise.resolve(false);
@@ -357,7 +362,7 @@ export function useAdminStore(adminEmail) {
     const next = sessions.find((s) => s.id === id);
     if (!next) return;
     setSession(next);
-    setQuestions(next.questions);
+    setQuestions((next.questions || []).map(normalizeQuestion));
     setFile(null);
     setError("");
   }
@@ -441,7 +446,7 @@ export function useAdminStore(adminEmail) {
       if (!res.ok) {
         throw new Error(data.error || `Request failed (${res.status})`);
       }
-      setQuestions(data.questions || []);
+      setQuestions((data.questions || []).map(normalizeQuestion));
       showToast(
         `${data.questions?.length || 0} questions generated. Review them below.`,
         "success"
@@ -477,8 +482,36 @@ export function useAdminStore(adminEmail) {
     setQuestions((items) => items.filter((_, i) => i !== index));
   }
 
-  function addQuestion() {
-    setQuestions((items) => [...items, emptyQuestion()]);
+  function addQuestion(type = "mcq") {
+    setQuestions((items) => [...items, emptyQuestion(type)]);
+  }
+
+  function setQuestionType(index, type) {
+    setQuestions((items) =>
+      items.map((item, i) => (i === index ? emptyQuestion(type) : item))
+    );
+  }
+
+  function addPollOption(index) {
+    setQuestions((items) =>
+      items.map((item, i) =>
+        i === index
+          ? { ...item, options: [...item.options, ""] }
+          : item
+      )
+    );
+  }
+
+  function removePollOption(index, optionIndex) {
+    setQuestions((items) =>
+      items.map((item, i) => {
+        if (i !== index || item.options.length <= 2) return item;
+        return {
+          ...item,
+          options: item.options.filter((_, oi) => oi !== optionIndex),
+        };
+      })
+    );
   }
 
   function startOver() {
@@ -654,13 +687,25 @@ export function useAdminStore(adminEmail) {
         let totalAnswers = 0;
         const perQuestion = {};
         for (const [questionIndex, data] of answers) {
-          const counts = [0, 0, 0, 0];
+          const question = questions[Number(questionIndex)];
+          const optionCount = Array.isArray(question?.options)
+            ? question.options.length
+            : 4;
+          const counts = new Array(Math.max(0, optionCount)).fill(0);
           for (const [participantId, entry] of Object.entries(data || {})) {
-            if (!entry || typeof entry.selectedIndex !== "number") continue;
-            participantIds.add(participantId);
-            totalAnswers += 1;
-            if (entry.selectedIndex >= 0 && entry.selectedIndex <= 3) {
-              counts[entry.selectedIndex] += 1;
+            if (!entry) continue;
+            if (Number.isInteger(entry.selectedIndex)) {
+              participantIds.add(participantId);
+              totalAnswers += 1;
+              if (
+                entry.selectedIndex >= 0 &&
+                entry.selectedIndex < counts.length
+              ) {
+                counts[entry.selectedIndex] += 1;
+              }
+            } else if (typeof entry.text === "string" && entry.text.trim()) {
+              participantIds.add(participantId);
+              totalAnswers += 1;
             }
           }
           perQuestion[questionIndex] = counts;
@@ -689,6 +734,9 @@ export function useAdminStore(adminEmail) {
         );
       }
       writeLive({ status: "ended" });
+      if (configured && db) {
+        refreshSessions();
+      }
       showToast(
         "Session completed. Results are available in Reports.",
         "success"
@@ -740,7 +788,7 @@ export function useAdminStore(adminEmail) {
       }
       if (draft) {
         setSession(draft);
-        setQuestions(draft.questions || []);
+        setQuestions((draft.questions || []).map(normalizeQuestion));
       }
       if (configured && database && endedSessionId) {
         await writeLiveStates(database, endedSessionId, {
@@ -812,6 +860,11 @@ export function useAdminStore(adminEmail) {
     } finally {
       duplicateLockRef.current = false;
     }
+  }
+
+  function clearReactions() {
+    if (!configured || !database || !session?.id) return;
+    set(ref(database, `sessions/${session.id}/reactions`), null).catch(() => {});
   }
 
   function downloadSessionCsv(sessionToDownload) {
@@ -893,8 +946,10 @@ export function useAdminStore(adminEmail) {
     saving,
     error,
     qrDataUrl,
-    answerCounts,
+    currentAnswers,
     participantCount,
+    reactions,
+    clearReactions,
     normalizedStatus,
     started,
     step,
@@ -902,6 +957,7 @@ export function useAdminStore(adminEmail) {
     shareUrl,
     currentQuestion,
     totalAnswers,
+    answerCounts,
     recoveredLiveId,
     navSaving,
     refreshSessions,
@@ -914,6 +970,9 @@ export function useAdminStore(adminEmail) {
     updateOption,
     removeQuestion,
     addQuestion,
+    setQuestionType,
+    addPollOption,
+    removePollOption,
     startOver,
     saveDraft,
     publish,

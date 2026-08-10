@@ -86,25 +86,31 @@ export function clearParticipantData() {
 }
 
 export async function findSessionByRoomCode(roomCode) {
-  let code = String(roomCode || "").trim().toUpperCase();
-  if (!code) return null;
-  if (!code.includes("-") && /^\d+$/.test(code)) {
-    code = `FP-${code}`;
+  const raw = String(roomCode || "").trim().toUpperCase();
+  if (!raw) return null;
+  const candidates = [raw];
+  const bare = raw.replace(/^FP-/, "");
+  if (bare !== raw) candidates.push(bare);
+  if (/^\d+$/.test(raw)) {
+    candidates.push(`FP-${raw}`);
   }
-  const snap = await getDocs(
-    query(collection(db, "sessions"), where("roomCode", "==", code))
-  );
-  const match = snap.docs.find((docSnap) => {
-    const data = docSnap.data() || {};
-    return normalizeStatus(data.status) !== "draft";
-  });
-  if (!match) return null;
-  const data = match.data() || {};
-  return {
-    sessionId: match.id,
-    roomCode: data.roomCode || code,
-    sessionName: data.sessionName || match.id,
-  };
+  for (const code of candidates) {
+    const snap = await getDocs(
+      query(collection(db, "sessions"), where("roomCode", "==", code))
+    );
+    const match = snap.docs.find((docSnap) => {
+      const data = docSnap.data() || {};
+      return normalizeStatus(data.status) !== "draft";
+    });
+    if (!match) continue;
+    const data = match.data() || {};
+    return {
+      sessionId: match.id,
+      roomCode: data.roomCode || code,
+      sessionName: data.sessionName || match.id,
+    };
+  }
+  return null;
 }
 
 export function emailToDocId(email) {

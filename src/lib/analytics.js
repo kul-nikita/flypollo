@@ -181,26 +181,44 @@ function buildQuestionStats(questions, answers) {
   return questions.map((question, index) => {
     const data = answers.get(index) || {};
     const counts = [0, 0, 0, 0];
+    const words = {};
     let answered = 0;
     let responseSum = 0;
     let responseCount = 0;
     for (const answer of Object.values(data)) {
-      if (!answer || typeof answer.selectedIndex !== "number") continue;
-      answered += 1;
-      if (answer.selectedIndex >= 0 && answer.selectedIndex < counts.length) {
-        counts[answer.selectedIndex] += 1;
+      if (!answer) continue;
+      if (typeof answer.selectedIndex === "number") {
+        answered += 1;
+        if (answer.selectedIndex >= 0 && answer.selectedIndex < counts.length) {
+          counts[answer.selectedIndex] += 1;
+        }
+      } else if (typeof answer.text === "string" && answer.text.trim()) {
+        answered += 1;
+        const word = answer.text.trim();
+        words[word] = (words[word] || 0) + 1;
+      } else {
+        continue;
       }
       if (typeof answer.responseMs === "number" && answer.responseMs >= 0) {
         responseSum += answer.responseMs;
         responseCount += 1;
       }
     }
+    const wordcloud = !Number.isInteger(question?.correctIndex);
     const correctIndex =
       typeof question?.correctIndex === "number" ? question.correctIndex : -1;
     const correctCount = correctIndex >= 0 ? counts[correctIndex] || 0 : 0;
     const wrongCount = answered - correctCount;
-    const correctPct = answered ? Math.round((correctCount / answered) * 100) : 0;
-    const incorrectPct = answered ? Math.round((wrongCount / answered) * 100) : 0;
+    const correctPct = wordcloud
+      ? null
+      : answered
+        ? Math.round((correctCount / answered) * 100)
+        : 0;
+    const incorrectPct = wordcloud
+      ? null
+      : answered
+        ? Math.round((wrongCount / answered) * 100)
+        : 0;
     let mostChosenWrong = null;
     if (correctIndex >= 0 && wrongCount > 0) {
       let mostIndex = -1;
@@ -221,7 +239,7 @@ function buildQuestionStats(questions, answers) {
       }
     }
     let difficulty = "";
-    if (answered > 0) {
+    if (answered > 0 && !wordcloud) {
       if (correctPct > 80) difficulty = "Easy";
       else if (correctPct >= 50) difficulty = "Medium";
       else difficulty = "Hard";
@@ -232,6 +250,9 @@ function buildQuestionStats(questions, answers) {
       options: Array.isArray(question?.options) ? question.options : [],
       correctIndex,
       counts,
+      words: Object.entries(words)
+        .sort((a, b) => b[1] - a[1])
+        .map(([word, count]) => ({ word, count })),
       answered,
       correctCount,
       wrongCount,
@@ -336,24 +357,32 @@ function optionLetter(index) {
 
 export function answersCsv(questions, answers, rows) {
   const lines = [
-    ["Participant", "Email", "Question", "Question Text", "Selected Option", "Correct Option", "Correct"],
+    ["Participant", "Email", "Question", "Question Text", "Response", "Correct Option", "Correct"],
     ...rows.flatMap((row) =>
       questions.map((question, qIndex) => {
         const entry = (answers.get(qIndex) || {})[row.participantId];
-        const selected =
-          entry && typeof entry.selectedIndex === "number"
-            ? entry.selectedIndex
-            : null;
+        let selected = null;
+        let text = null;
+        if (entry && typeof entry.selectedIndex === "number") {
+          selected = entry.selectedIndex;
+        } else if (entry && typeof entry.text === "string") {
+          text = entry.text;
+        }
+        const hasCorrect = Number.isInteger(question.correctIndex);
         return [
           row.name,
           row.email,
           qIndex + 1,
           question.question,
-          selected === null ? "—" : optionLetter(selected),
-          optionLetter(question.correctIndex),
+          selected === null
+            ? text === null
+              ? "—"
+              : text
+            : optionLetter(selected),
+          hasCorrect ? optionLetter(question.correctIndex) : "—",
           selected === null
             ? "—"
-            : selected === question.correctIndex
+            : hasCorrect && selected === question.correctIndex
               ? "Yes"
               : "No",
         ];

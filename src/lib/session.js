@@ -24,9 +24,9 @@ export function defaultSessionName() {
 export function roomCodeFor(date) {
   let hash = 0;
   for (const char of date) {
-    hash = (hash * 31 + char.charCodeAt(0)) % 1000000;
+    hash = (hash * 31 + char.charCodeAt(0)) % 10000;
   }
-  return `FP-${String(hash).padStart(6, "0")}`;
+  return String(hash).padStart(4, "0");
 }
 
 export function newSessionId() {
@@ -37,8 +37,8 @@ export function newSessionId() {
 }
 
 export function newRoomCode() {
-  const number = Math.floor(100000 + Math.random() * 900000);
-  return `FP-${number}`;
+  const number = Math.floor(1000 + Math.random() * 9000);
+  return String(number);
 }
 
 export const APP_URL = "https://flypollo.netlify.app";

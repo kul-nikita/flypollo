@@ -69,7 +69,7 @@ export default function Join({ profile, initialRoomCode = "", onBack, onJoined }
               setRoomCode(event.target.value.toUpperCase());
               setError("");
             }}
-            placeholder="FP-482913"
+            placeholder="4829"
             autoCapitalize="characters"
             autoComplete="off"
             autoCorrect="off"

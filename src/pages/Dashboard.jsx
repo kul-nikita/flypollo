@@ -1,13 +1,57 @@
 import { useEffect, useRef, useState } from "react";
 import { doc, getDoc, setDoc } from "firebase/firestore";
-import { ref, onValue } from "firebase/database";
+import { ref, onValue, set } from "firebase/database";
 import { db, database, configured } from "../firebase";
 import { formatDate } from "../lib/session";
 import { DEFAULT_LIVE, livePath } from "../lib/live";
+import { useCountdown } from "../lib/useCountdown";
 import { findSessionByRoomCode, saveJoinedSession } from "../lib/participant";
 import { listParticipantSessions } from "../lib/report";
 import { useToast } from "../components/Toasts";
 import ConfirmDialog from "../components/ConfirmDialog";
+
+const REACTIONS = ["👍", "❤️", "👏", "😂", "🎉"];
+
+function ReactionsLauncher({ sessionId, participantId }) {
+  const [open, setOpen] = useState(false);
+  if (!sessionId || !participantId) return null;
+  function send(emoji) {
+    if (!configured || !database) return;
+    set(
+      ref(database, `sessions/${sessionId}/reactions/${participantId}`),
+      { emoji, at: Date.now() }
+    ).catch(() => {});
+    setOpen(false);
+  }
+  return (
+    <div className="reactions">
+      {open && (
+        <div className="reactions-panel" role="toolbar" aria-label="Reactions">
+          {REACTIONS.map((emoji) => (
+            <button
+              key={emoji}
+              type="button"
+              className="reaction-btn"
+              onClick={() => send(emoji)}
+              aria-label={`React with ${emoji}`}
+            >
+              {emoji}
+            </button>
+          ))}
+        </div>
+      )}
+      <button
+        type="button"
+        className="reactions-toggle"
+        onClick={() => setOpen((v) => !v)}
+        aria-label="Send a reaction"
+        aria-expanded={open}
+      >
+        <span aria-hidden="true">⚡</span>
+      </button>
+    </div>
+  );
+}
 
 function ConnectionPill({ connected }) {
   return (
@@ -29,8 +73,8 @@ function extractRoomCode(raw) {
   } catch {
     // fall through to raw code check
   }
-  if (/^FP-\d{6}$/i.test(value)) return value.toUpperCase();
-  if (/^\d{6}$/.test(value)) return value.toUpperCase();
+  if (/^FP-\d{4,6}$/i.test(value)) return value.toUpperCase();
+  if (/^\d{4,6}$/.test(value)) return value.toUpperCase();
   return "";
 }
 
@@ -136,6 +180,8 @@ export default function Dashboard({
   const [loadingQuestions, setLoadingQuestions] = useState(false);
   const [selectedAnswer, setSelectedAnswer] = useState(null);
   const [submitted, setSubmitted] = useState({});
+  const [wordText, setWordText] = useState("");
+  const [timedOut, setTimedOut] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const [confirmSignOut, setConfirmSignOut] = useState(false);
@@ -190,6 +236,8 @@ export default function Dashboard({
 
   useEffect(() => {
     setSelectedAnswer(null);
+    setWordText("");
+    setTimedOut(false);
     setSaving(false);
     if (live.status !== "live" || !profile || questions.length === 0) return;
     let cancelled = false;
@@ -197,9 +245,13 @@ export default function Dashboard({
       .then((snap) => {
         if (cancelled) return;
         const entry = snap.exists() ? snap.data()[profile.participantId] : null;
-        if (entry && typeof entry.selectedIndex === "number") {
+        if (!entry) return;
+        if (typeof entry.selectedIndex === "number") {
           setSubmitted((map) => ({ ...map, [live.questionIndex]: entry.selectedIndex }));
           setSelectedAnswer(entry.selectedIndex);
+        } else if (typeof entry.text === "string" && entry.text.trim()) {
+          setSubmitted((map) => ({ ...map, [live.questionIndex]: entry.text }));
+          setWordText(entry.text);
         }
       })
       .catch(() => {});
@@ -302,7 +354,7 @@ export default function Dashboard({
     if (!profile || live.status !== "live") return;
     if (answerLockRef.current) return;
     const qIndex = live.questionIndex;
-    if (submitted[qIndex] !== undefined || selectedAnswer !== null) return;
+    if (submitted[qIndex] !== undefined || selectedAnswer !== null || timedOut) return;
     answerLockRef.current = true;
     setError("");
     setSaving(true);
@@ -334,6 +386,41 @@ export default function Dashboard({
     }
   }
 
+  async function handleWordSubmit() {
+    if (!profile || live.status !== "live") return;
+    if (answerLockRef.current) return;
+    const qIndex = live.questionIndex;
+    const text = wordText.trim();
+    if (!text || submitted[qIndex] !== undefined || timedOut) return;
+    answerLockRef.current = true;
+    setError("");
+    setSaving(true);
+    const shownAt = Number(live.questionShownAt) || null;
+    const responseMs =
+      shownAt && shownAt > 0 ? Math.max(0, Date.now() - shownAt) : null;
+    try {
+      await setDoc(
+        doc(db, "sessions", liveSessionId, "answers", String(qIndex)),
+        {
+          [profile.participantId]: {
+            text,
+            timestamp: new Date().toISOString(),
+            ...(responseMs !== null ? { responseMs } : {}),
+          },
+        },
+        { merge: true }
+      );
+      setSubmitted((map) => ({ ...map, [qIndex]: text }));
+      showToast("Response saved.", "success", 2500);
+    } catch (err) {
+      setError(err.message);
+      showToast(err.message, "error");
+    } finally {
+      setSaving(false);
+      answerLockRef.current = false;
+    }
+  }
+
   function handleSignOut() {
     setConfirmSignOut(false);
     onSignOut();
@@ -341,6 +428,17 @@ export default function Dashboard({
 
   const currentQuestion = questions[live.questionIndex] || null;
   const locked = submitted[live.questionIndex] !== undefined;
+  const remaining = useCountdown(
+    currentQuestion?.timerSeconds ? live.questionShownAt : null,
+    currentQuestion?.timerSeconds || 0
+  );
+
+  useEffect(() => {
+    const hasTimer = currentQuestion?.timerSeconds > 0;
+    if (!hasTimer || remaining > 0 || locked || live.status !== "live") return;
+    setTimedOut(true);
+  }, [remaining, locked, live.status, currentQuestion?.timerSeconds]);
+
   const answeredCount = Object.keys(submitted).length;
   const firstName = (profile.name || "").split(" ")[0] || profile.name;
   const initial = (profile.name || "?").slice(0, 1).toUpperCase();
@@ -401,31 +499,79 @@ export default function Dashboard({
 
         <div className="dashboard-card quiz-card">
           <h1 className="quiz-question">{currentQuestion.question}</h1>
+          {currentQuestion.timerSeconds > 0 && live.status === "live" && (
+            <div
+              className={`quiz-timer ${remaining <= 5 && !locked ? "quiz-timer-warn" : ""}`}
+              role="timer"
+              aria-label={`Time remaining: ${remaining} seconds`}
+            >
+              <span className="quiz-timer-value">{remaining}s</span>
+            </div>
+          )}
           {error && <p className="error" role="alert">{error}</p>}
-          <div className="answer-grid">
-            {currentQuestion.options.map((option, index) => (
+          {currentQuestion.type === "wordcloud" ? (
+            <div className="wordcloud-answer">
+              <input
+                type="text"
+                value={wordText}
+                onChange={(event) => setWordText(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter") handleWordSubmit();
+                }}
+                placeholder="Type a word or short phrase…"
+                aria-label="Your word"
+                disabled={locked || timedOut || saving}
+                maxLength={60}
+              />
               <button
-                key={index}
                 type="button"
-                className={`answer-btn ${selectedAnswer === index ? "selected" : ""}`}
-                onClick={() => handleAnswer(index)}
-                disabled={locked || saving}
+                className="btn btn-primary wordcloud-submit"
+                onClick={handleWordSubmit}
+                disabled={locked || timedOut || saving || !wordText.trim()}
               >
-                <span className="answer-letter" aria-hidden="true">
-                  {String.fromCharCode(65 + index)}
-                </span>
-                {option}
+                Submit
               </button>
-            ))}
-          </div>
+            </div>
+          ) : (
+            <div className="answer-grid">
+              {currentQuestion.options.map((option, index) => (
+                <button
+                  key={index}
+                  type="button"
+                  className={`answer-btn ${selectedAnswer === index ? "selected" : ""}`}
+                  onClick={() => handleAnswer(index)}
+                  disabled={locked || timedOut || saving}
+                >
+                  <span className="answer-letter" aria-hidden="true">
+                    {String.fromCharCode(65 + index)}
+                  </span>
+                  {option}
+                </button>
+              ))}
+            </div>
+          )}
           {saving && <p className="hint">Saving your answer…</p>}
+          {timedOut && !locked && (
+            <p className="hint" role="status">Time's up for this question.</p>
+          )}
           {locked && selectedAnswer !== null && (
             <p className="answer-locked" role="status">
               <span className="check-badge" aria-hidden="true">✓</span>
               Answer locked — you chose {String.fromCharCode(65 + selectedAnswer)}.
             </p>
           )}
+          {locked && selectedAnswer === null && (
+            <p className="answer-locked" role="status">
+              <span className="check-badge" aria-hidden="true">✓</span>
+              Response locked — you sent “{wordText}”.
+            </p>
+          )}
         </div>
+
+        <ReactionsLauncher
+          sessionId={liveSessionId}
+          participantId={profile.participantId}
+        />
 
         <button
           type="button"
@@ -494,7 +640,7 @@ export default function Dashboard({
                     setRoomCode(event.target.value.toUpperCase());
                     setJoinError("");
                   }}
-                  placeholder="FP-482913"
+                  placeholder="4829"
                   autoCapitalize="characters"
                   autoComplete="off"
                   autoCorrect="off"
@@ -676,6 +822,11 @@ export default function Dashboard({
         cancelLabel="Stay"
         onConfirm={handleSignOut}
         onCancel={() => setConfirmSignOut(false)}
+      />
+
+      <ReactionsLauncher
+        sessionId={liveSessionId}
+        participantId={profile.participantId}
       />
     </section>
   );

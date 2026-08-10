@@ -2,7 +2,32 @@ import { useEffect } from "react";
 import StatusChip from "../../components/StatusChip";
 import { formatDate } from "../../lib/session";
 import { copyText } from "../../lib/copy";
+import { useCountdown } from "../../lib/useCountdown";
 import { useToast } from "../../components/Toasts";
+
+function WordCloudList({ entries }) {
+  const counts = {};
+  for (const entry of Object.values(entries || {})) {
+    if (!entry || typeof entry.text !== "string") continue;
+    const word = entry.text.trim();
+    if (!word) continue;
+    counts[word] = (counts[word] || 0) + 1;
+  }
+  const words = Object.entries(counts).sort((a, b) => b[1] - a[1]);
+  if (words.length === 0) {
+    return <p className="field-hint">Waiting for words to come in…</p>;
+  }
+  return (
+    <ul className="wordcloud-list">
+      {words.map(([word, count]) => (
+        <li className="wordcloud-item" key={word}>
+          <span className="wordcloud-word">{word}</span>
+          <span className="wordcloud-count">{count}</span>
+        </li>
+      ))}
+    </ul>
+  );
+}
 
 export default function LiveSessionPage({ store, onNavigate }) {
   const {
@@ -13,6 +38,7 @@ export default function LiveSessionPage({ store, onNavigate }) {
     saving,
     qrDataUrl,
     answerCounts,
+    currentAnswers,
     participantCount,
     currentQuestion,
     totalAnswers,
@@ -23,8 +49,14 @@ export default function LiveSessionPage({ store, onNavigate }) {
     prevQuestion,
     startSession,
     requestConfirm,
+    reactions,
+    clearReactions,
   } = store;
   const { showToast } = useToast();
+  const remaining = useCountdown(
+    currentQuestion?.timerSeconds ? live.questionShownAt : null,
+    currentQuestion?.timerSeconds || 0
+  );
 
   useEffect(() => {
     if (normalizedStatus !== "live") return;
@@ -225,40 +257,87 @@ export default function LiveSessionPage({ store, onNavigate }) {
             <h2 className="live-preview-question">
               {currentQuestion.question}
             </h2>
+            {currentQuestion.timerSeconds > 0 && live.status === "live" && (
+              <div
+                className={`quiz-timer ${remaining <= 5 ? "quiz-timer-warn" : ""}`}
+                role="timer"
+                aria-label={`Time remaining: ${remaining} seconds`}
+              >
+                <span className="quiz-timer-value">{remaining}s</span>
+              </div>
+            )}
             <div className="live-answers">
               <h3 className="live-answers-title">
                 Live answers ({totalAnswers})
               </h3>
-              {currentQuestion.options.map((option, index) => {
-                const count = answerCounts[index] || 0;
-                const pct =
-                  totalAnswers > 0
-                    ? Math.round((count / totalAnswers) * 100)
-                    : 0;
-                return (
-                  <div className="answer-bar" key={index}>
-                    <div className="answer-bar-label">
-                      <span>
-                        <strong>{String.fromCharCode(65 + index)}</strong> —{" "}
-                        {option}
-                      </span>
-                      <span>{count}</span>
+              {currentQuestion.type === "wordcloud" ? (
+                <WordCloudList entries={currentAnswers} />
+              ) : (
+                currentQuestion.options.map((option, index) => {
+                  const count = answerCounts[index] || 0;
+                  const pct =
+                    totalAnswers > 0
+                      ? Math.round((count / totalAnswers) * 100)
+                      : 0;
+                  return (
+                    <div className="answer-bar" key={index}>
+                      <div className="answer-bar-label">
+                        <span>
+                          <strong>{String.fromCharCode(65 + index)}</strong> —{" "}
+                          {option}
+                        </span>
+                        <span>{count}</span>
+                      </div>
+                      <div className="answer-bar-track">
+                        <div
+                          className={
+                            "answer-bar-fill" +
+                            (index === currentQuestion.correctIndex
+                              ? " correct"
+                              : "")
+                          }
+                          style={{ width: `${pct}%` }}
+                        />
+                      </div>
                     </div>
-                    <div className="answer-bar-track">
-                      <div
-                        className={
-                          "answer-bar-fill" +
-                          (index === currentQuestion.correctIndex
-                            ? " correct"
-                            : "")
-                        }
-                        style={{ width: `${pct}%` }}
-                      />
-                    </div>
-                  </div>
-                );
-              })}
+                  );
+                })
+              )}
             </div>
+            {normalizedStatus === "live" && (
+              <div className="live-reactions">
+                <h3 className="live-answers-title">
+                  Reactions ({Object.keys(reactions).length})
+                </h3>
+                {Object.keys(reactions).length === 0 ? (
+                  <p className="field-hint">
+                    Participants can tap the ⚡ button to react.
+                  </p>
+                ) : (
+                  <div className="reaction-summary">
+                    {Object.entries(
+                      Object.values(reactions).reduce((acc, r) => {
+                        if (!r || !r.emoji) return acc;
+                        acc[r.emoji] = (acc[r.emoji] || 0) + 1;
+                        return acc;
+                      }, {})
+                    ).map(([emoji, count]) => (
+                      <span className="reaction-chip" key={emoji}>
+                        {emoji} {count}
+                      </span>
+                    ))}
+                  </div>
+                )}
+                <button
+                  type="button"
+                  className="btn btn-ghost btn-sm"
+                  onClick={clearReactions}
+                  disabled={Object.keys(reactions).length === 0}
+                >
+                  Clear reactions
+                </button>
+              </div>
+            )}
           </div>
         )}
       </section>

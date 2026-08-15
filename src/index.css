@@ -92,10 +92,20 @@ a {
   outline-offset: 2px;
 }
 
+.brand-btn.brand-btn-static {
+  cursor: default;
+}
+
 .logo {
   display: inline-flex;
   align-items: center;
   gap: 0.6rem;
+  user-select: none;
+}
+
+.logo-img {
+  user-select: none;
+  -webkit-user-drag: none;
 }
 
 .logo-text {

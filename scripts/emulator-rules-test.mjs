@@ -28,8 +28,16 @@ const QUESTIONS = [
     question: "What is the capital of France?",
     options: ["Paris", "Rome", "Madrid", "Berlin"],
     correctIndex: 0,
+    type: "mcq",
   },
 ];
+
+const TEN_QUESTIONS = Array.from({ length: 10 }, (_, i) => ({
+  question: `Question number ${i + 1}?`,
+  options: ["Option A", "Option B", "Option C", "Option D"],
+  correctIndex: i % 4,
+  type: "mcq",
+}));
 
 async function expectDenied(name, fn) {
   try {
@@ -102,6 +110,23 @@ async function run() {
     check("saveDraft merge update", true);
   } catch (e) {
     check("saveDraft merge update -> " + e.message, false);
+  }
+
+  try {
+    await setDoc(
+      doc(db, "sessions", sessionId),
+      {
+        status: "draft",
+        questions: TEN_QUESTIONS,
+        questionCount: TEN_QUESTIONS.length,
+        transcriptFilename: "transcript.txt",
+        updatedAt: new Date().toISOString(),
+      },
+      { merge: true }
+    );
+    check("saveDraft merge with 10 questions", true);
+  } catch (e) {
+    check("saveDraft merge with 10 questions -> " + e.message, false);
   }
 
   const legacyId = newSessionId();

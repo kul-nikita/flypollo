@@ -13,6 +13,10 @@
         "live": {
           ".read": true,
           ".write": "(!data.exists() || ((data.child('status').val() == 'idle' && (newData.child('status').val() == 'idle' || newData.child('status').val() == 'live')) || (data.child('status').val() == 'live' && (newData.child('status').val() == 'live' || newData.child('status').val() == 'ended' || newData.child('status').val() == 'idle')) || (data.child('status').val() == 'ended' && newData.child('status').val() == 'idle'))) && newData.hasChildren(['status', 'questionIndex']) && (newData.child('status').val() == 'idle' || newData.child('status').val() == 'live' || newData.child('status').val() == 'ended') && newData.child('questionIndex').isNumber() && newData.child('questionIndex').val() >= 0 && newData.child('questionIndex').val() % 1 == 0 && (!newData.hasChild('sessionId') || (newData.child('sessionId').isString() && newData.child('sessionId').val() == $sessionId)) && (!newData.hasChild('sessionDate') || newData.child('sessionDate').isString()) && (!newData.hasChild('roomCode') || newData.child('roomCode').isString()) && (!newData.hasChild('questionShownAt') || newData.child('questionShownAt').isNumber())"
+        },
+        "reactions": {
+          ".read": true,
+          ".write": "newData.val() == null || (newData.hasChildren(['emoji', 'at']) && newData.child('emoji').isString() && newData.child('at').isNumber())"
         }
       }
     }

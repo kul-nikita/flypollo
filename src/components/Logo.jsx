@@ -7,6 +7,7 @@ export default function Logo({ size = 34, withText = false, className = "" }) {
         width={size}
         height={size}
         className="logo-img"
+        draggable={false}
         style={{ borderRadius: "12%" }}
       />
       {withText && <span className="logo-text">FlyPollo</span>}

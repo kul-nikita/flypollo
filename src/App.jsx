@@ -66,7 +66,7 @@ export default function App() {
           <header className="app-header">
             <button
               type="button"
-              className="brand-btn"
+              className={`brand-btn${view.name === "landing" ? " brand-btn-static" : ""}`}
               onClick={view.name === "landing" ? undefined : goHome}
               aria-label="FlyPollo home"
             >
@@ -105,6 +105,14 @@ export default function App() {
                     name: "dashboard",
                     profile: view.profile,
                     joinedSession: session,
+                  })
+                }
+                onLeaveSession={() =>
+                  setView({
+                    name: "dashboard",
+                    profile: view.profile,
+                    joinedSession: null,
+                    initialRoomCode: "",
                   })
                 }
                 onProfile={() =>

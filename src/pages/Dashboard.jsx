@@ -5,7 +5,11 @@ import { db, database, configured } from "../firebase";
 import { formatDate } from "../lib/session";
 import { DEFAULT_LIVE, livePath } from "../lib/live";
 import { useCountdown } from "../lib/useCountdown";
-import { findSessionByRoomCode, saveJoinedSession } from "../lib/participant";
+import {
+  clearJoinedSession,
+  findSessionByRoomCode,
+  saveJoinedSession,
+} from "../lib/participant";
 import { listParticipantSessions } from "../lib/report";
 import { useToast } from "../components/Toasts";
 import ConfirmDialog from "../components/ConfirmDialog";
@@ -173,6 +177,7 @@ export default function Dashboard({
   onJoined,
   onProfile,
   onSignOut,
+  onLeaveSession,
 }) {
   const [connected, setConnected] = useState(false);
   const [live, setLive] = useState(DEFAULT_LIVE);
@@ -348,6 +353,19 @@ export default function Dashboard({
     }
     setRoomCode(code);
     joinRoom(code);
+  }
+
+  function handleLeaveSession() {
+    clearJoinedSession();
+    setLive(DEFAULT_LIVE);
+    setQuestions([]);
+    setSubmitted({});
+    setSelectedAnswer(null);
+    setWordText("");
+    setTimedOut(false);
+    setRoomCode("");
+    setJoinError("");
+    if (onLeaveSession) onLeaveSession();
   }
 
   async function handleAnswer(optionIndex) {
@@ -727,6 +745,15 @@ export default function Dashboard({
                 </p>
               )}
               <p className="waiting-hint">Thanks for participating!</p>
+              <div className="pdash-results-actions">
+                <button
+                  type="button"
+                  className="btn btn-primary btn-block"
+                  onClick={handleLeaveSession}
+                >
+                  Join another session
+                </button>
+              </div>
             </div>
           )}
         </div>

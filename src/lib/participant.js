@@ -5,18 +5,12 @@ import { normalizeStatus } from "./session";
 const STORAGE_KEY = "flypollo.participant";
 const JOINED_SESSION_KEY = "flypollo.joinedSession";
 const ADMIN_EMAIL_KEY = "flypollo.adminEmail";
-const WEEK_MS = 7 * 24 * 60 * 60 * 1000;
-
 export function loadSavedProfile() {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (!raw) return null;
     const saved = JSON.parse(raw);
     if (!saved.savedAt || !saved.participantId || !saved.email) return null;
-    if (Date.now() - saved.savedAt > WEEK_MS) {
-      localStorage.removeItem(STORAGE_KEY);
-      return null;
-    }
     return saved;
   } catch {
     return null;
@@ -134,6 +128,7 @@ function toProfile(data) {
     email: data.email,
     institution: data.institution,
     designation: data.designation,
+    createdAt: data.createdAt,
   };
 }
 
@@ -167,13 +162,19 @@ export async function registerParticipant({ name, email, institution, designatio
 export async function updateParticipant(profile) {
   const normalizedEmail = String(profile.email).trim().toLowerCase();
   const refDoc = doc(db, "participants", emailToDocId(normalizedEmail));
+  const snapshot = await getDoc(refDoc);
+  const existing = snapshot.exists() ? snapshot.data() : {};
+  const createdAt = profile.createdAt || existing.createdAt;
+  if (!createdAt) {
+    throw new Error("Participant record not found. Please sign in again.");
+  }
   const updated = {
-    participantId: profile.participantId,
+    participantId: profile.participantId || existing.participantId,
     name: String(profile.name).trim(),
     email: normalizedEmail,
     institution: String(profile.institution).trim(),
     designation: String(profile.designation).trim(),
-    createdAt: profile.createdAt,
+    createdAt,
   };
   await setDoc(refDoc, updated);
   return toProfile(updated);

@@ -26,108 +26,25 @@ service cloud.firestore {
              email.matches('^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$');
     }
 
-    function validMcq(q) {
-      return q.type == 'mcq' &&
-             q.options is list && q.options.size() == 4 &&
-             q.options[0] is string && q.options[0].size() > 0 &&
-             q.options[1] is string && q.options[1].size() > 0 &&
-             q.options[2] is string && q.options[2].size() > 0 &&
-             q.options[3] is string && q.options[3].size() > 0 &&
-             q.correctIndex is int &&
-             q.correctIndex >= 0 && q.correctIndex <= 3;
-    }
-
-    function validPoll(q) {
-      return q.type == 'poll' &&
-             q.options is list && q.options.size() >= 2 &&
-             q.options[0] is string && q.options[0].size() > 0 &&
-             q.options[1] is string && q.options[1].size() > 0;
-    }
-
-    function validWordcloud(q) {
-      return q.type == 'wordcloud' &&
-             q.options is list && q.options.size() == 0;
-    }
-
-    function validQuestion(q) {
-      return q is map &&
-             q.keys().hasAll(['question', 'options', 'type']) &&
-             q.question is string && q.question.size() > 0 &&
-             q.type is string &&
-             (validMcq(q) || validPoll(q) || validWordcloud(q));
-    }
-
-    // Rules v2 cannot iterate over lists, so each position is checked
-    // explicitly up to a safe maximum.
-    function validQuestionList(questions) {
-      return (questions.size() < 1 || validQuestion(questions[0])) &&
-             (questions.size() < 2 || validQuestion(questions[1])) &&
-             (questions.size() < 3 || validQuestion(questions[2])) &&
-             (questions.size() < 4 || validQuestion(questions[3])) &&
-             (questions.size() < 5 || validQuestion(questions[4])) &&
-             (questions.size() < 6 || validQuestion(questions[5])) &&
-             (questions.size() < 7 || validQuestion(questions[6])) &&
-             (questions.size() < 8 || validQuestion(questions[7])) &&
-             (questions.size() < 9 || validQuestion(questions[8])) &&
-             (questions.size() < 10 || validQuestion(questions[9])) &&
-             (questions.size() < 11 || validQuestion(questions[10])) &&
-             (questions.size() < 12 || validQuestion(questions[11])) &&
-             (questions.size() < 13 || validQuestion(questions[12])) &&
-             (questions.size() < 14 || validQuestion(questions[13])) &&
-             (questions.size() < 15 || validQuestion(questions[14])) &&
-             (questions.size() < 16 || validQuestion(questions[15])) &&
-             (questions.size() < 17 || validQuestion(questions[16])) &&
-             (questions.size() < 18 || validQuestion(questions[17])) &&
-             (questions.size() < 19 || validQuestion(questions[18])) &&
-             (questions.size() < 20 || validQuestion(questions[19])) &&
-             (questions.size() < 21 || validQuestion(questions[20])) &&
-             (questions.size() < 22 || validQuestion(questions[21])) &&
-             (questions.size() < 23 || validQuestion(questions[22])) &&
-             (questions.size() < 24 || validQuestion(questions[23])) &&
-             (questions.size() < 25 || validQuestion(questions[24])) &&
-             (questions.size() < 26 || validQuestion(questions[25])) &&
-             (questions.size() < 27 || validQuestion(questions[26])) &&
-             (questions.size() < 28 || validQuestion(questions[27])) &&
-             (questions.size() < 29 || validQuestion(questions[28])) &&
-             (questions.size() < 30 || validQuestion(questions[29])) &&
-             (questions.size() < 31 || validQuestion(questions[30])) &&
-             (questions.size() < 32 || validQuestion(questions[31])) &&
-             (questions.size() < 33 || validQuestion(questions[32])) &&
-             (questions.size() < 34 || validQuestion(questions[33])) &&
-             (questions.size() < 35 || validQuestion(questions[34])) &&
-             (questions.size() < 36 || validQuestion(questions[35])) &&
-             (questions.size() < 37 || validQuestion(questions[36])) &&
-             (questions.size() < 38 || validQuestion(questions[37])) &&
-             (questions.size() < 39 || validQuestion(questions[38])) &&
-             (questions.size() < 40 || validQuestion(questions[39])) &&
-             (questions.size() < 41 || validQuestion(questions[40])) &&
-             (questions.size() < 42 || validQuestion(questions[41])) &&
-             (questions.size() < 43 || validQuestion(questions[42])) &&
-             (questions.size() < 44 || validQuestion(questions[43])) &&
-             (questions.size() < 45 || validQuestion(questions[44])) &&
-             (questions.size() < 46 || validQuestion(questions[45])) &&
-             (questions.size() < 47 || validQuestion(questions[46])) &&
-             (questions.size() < 48 || validQuestion(questions[47])) &&
-             (questions.size() < 49 || validQuestion(questions[48])) &&
-             (questions.size() < 50 || validQuestion(questions[49]));
+    // Question content is validated client-side (see validationError in
+    // src/lib/questions.js). Rules v2 cannot iterate over lists and even
+    // light per-position checks blow past Firestore's 1000-expression
+    // evaluation budget (every draft save was denied). Rules only enforce
+    // the shape: a list with a sane maximum size.
+    function validQuestions(questions) {
+      return questions is list && questions.size() <= 50;
     }
 
     // Drafts are created empty and grow as questions are added, so the
     // question list may be empty.
     function validDraftQuestions() {
-      let questions = request.resource.data.questions;
-      return questions is list &&
-             questions.size() <= 50 &&
-             validQuestionList(questions);
+      return validQuestions(request.resource.data.questions);
     }
 
     // A published snapshot must always have real content.
     function validPublishedQuestions() {
       let questions = request.resource.data.questions;
-      return questions is list &&
-             questions.size() > 0 &&
-             questions.size() <= 50 &&
-             validQuestionList(questions);
+      return validQuestions(questions) && questions.size() > 0;
     }
 
     function validParticipantProfile() {

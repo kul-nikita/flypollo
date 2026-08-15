@@ -26,10 +26,8 @@ service cloud.firestore {
              email.matches('^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$');
     }
 
-    function validQuestion(q) {
-      return q is map &&
-             q.keys().hasAll(['question', 'options', 'correctIndex']) &&
-             q.question is string && q.question.size() > 0 &&
+    function validMcq(q) {
+      return q.type == 'mcq' &&
              q.options is list && q.options.size() == 4 &&
              q.options[0] is string && q.options[0].size() > 0 &&
              q.options[1] is string && q.options[1].size() > 0 &&
@@ -37,6 +35,26 @@ service cloud.firestore {
              q.options[3] is string && q.options[3].size() > 0 &&
              q.correctIndex is int &&
              q.correctIndex >= 0 && q.correctIndex <= 3;
+    }
+
+    function validPoll(q) {
+      return q.type == 'poll' &&
+             q.options is list && q.options.size() >= 2 &&
+             q.options[0] is string && q.options[0].size() > 0 &&
+             q.options[1] is string && q.options[1].size() > 0;
+    }
+
+    function validWordcloud(q) {
+      return q.type == 'wordcloud' &&
+             q.options is list && q.options.size() == 0;
+    }
+
+    function validQuestion(q) {
+      return q is map &&
+             q.keys().hasAll(['question', 'options', 'type']) &&
+             q.question is string && q.question.size() > 0 &&
+             q.type is string &&
+             (validMcq(q) || validPoll(q) || validWordcloud(q));
     }
 
     // Rules v2 cannot iterate over lists, so each position is checked
@@ -196,7 +214,7 @@ service cloud.firestore {
     // Firebase Authentication is not enabled in this app, so rules cannot
     // distinguish the configured presenter from another web client. Keep the
     // create gate aligned with the actual client contract and avoid rejecting
-    // valid Gemini-generated question payloads on overly strict field checks.
+    // valid AI-generated question payloads on overly strict field checks.
     function validPublishedCreate() {
       let d = request.resource.data;
       return d.status == 'published' &&

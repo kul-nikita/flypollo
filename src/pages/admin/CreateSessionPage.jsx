@@ -17,6 +17,11 @@ export default function CreateSessionPage({ store, onNavigate }) {
     setCreateForm,
     creating,
     file,
+    questionCount,
+    setQuestionCount,
+    defaultTimerSeconds,
+    setDefaultTimer,
+    updateQuestionTimer,
     generating,
     questions,
     saving,
@@ -200,10 +205,45 @@ export default function CreateSessionPage({ store, onNavigate }) {
           <h2 className="adb-card-title">Upload a transcript</h2>
           <p className="adb-page-sub">
             {session?.sessionName ? `"${session.sessionName}" — ` : ""}
-            Drop a transcript and FlyPollo will draft ten questions for you to
-            review.
+            Drop a transcript and FlyPollo will draft{" "}
+            {questionCount === 1 ? "one question" : `${questionCount} questions`}{" "}
+            for you to review.
           </p>
           <form onSubmit={generate} className="upload-form">
+            <fieldset className="field question-count-field">
+              <legend className="field-label">How many questions?</legend>
+              <div className="question-count-options">
+                {[2, 5, 10].map((value) => (
+                  <label key={value} className="question-count-option">
+                    <input
+                      type="radio"
+                      name="questionCount"
+                      value={value}
+                      checked={questionCount === value}
+                      onChange={() => setQuestionCount(value)}
+                    />
+                    <span>{value} questions</span>
+                  </label>
+                ))}
+              </div>
+            </fieldset>
+            <label className="field default-timer-field">
+              <span className="field-label">
+                Default timer (seconds, 0 = no timer)
+              </span>
+              <input
+                type="number"
+                min={0}
+                max={300}
+                value={defaultTimerSeconds}
+                onChange={(event) => setDefaultTimer(event.target.value)}
+                aria-label="Default timer for all questions"
+              />
+              <span className="field-hint">
+                Applies to every generated question. You can still edit the
+                timer for each question in the review step.
+              </span>
+            </label>
             <label className="dropzone">
               <input
                 type="file"
@@ -229,7 +269,7 @@ export default function CreateSessionPage({ store, onNavigate }) {
             >
               {generating
                 ? "Generating questions…"
-                : "Generate questions"}
+                : `Generate ${questionCount} questions`}
             </button>
           </form>
         </div>
@@ -263,6 +303,27 @@ export default function CreateSessionPage({ store, onNavigate }) {
               Start over
             </button>
             <span className="toolbar-hint">{questions.length} questions</span>
+          </div>
+
+          <div className="adb-card default-timer-card">
+            <label className="field default-timer-field">
+              <span className="field-label">
+                Default timer (seconds, 0 = no timer)
+              </span>
+              <input
+                type="number"
+                min={0}
+                max={300}
+                value={defaultTimerSeconds}
+                onChange={(event) => setDefaultTimer(event.target.value)}
+                aria-label="Default timer for all questions"
+              />
+              <span className="field-hint">
+                Changing this applies it to every question right away. Changing
+                any multiple-choice timer updates all MCQs together; polls and
+                word clouds keep their own timer below.
+              </span>
+            </label>
           </div>
 
           <div className="question-list">
@@ -309,12 +370,7 @@ export default function CreateSessionPage({ store, onNavigate }) {
                       max={300}
                       value={q.timerSeconds}
                       onChange={(event) =>
-                        updateQuestion(index, {
-                          timerSeconds: Math.min(
-                            300,
-                            Math.max(0, Number(event.target.value) || 0)
-                          ),
-                        })
+                        updateQuestionTimer(index, event.target.value)
                       }
                       aria-label={`Timer for question ${index + 1}`}
                     />

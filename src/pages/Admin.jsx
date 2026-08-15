@@ -85,6 +85,8 @@ export default function Admin({ adminEmail, onSignOut }) {
       {page === "analytics" && (
         <AnalyticsPage
           sessionId={analyticsId}
+          sessions={store.sessions}
+          onSelectSession={(id) => setAnalyticsId(id)}
           onBack={() => setPage("history")}
         />
       )}

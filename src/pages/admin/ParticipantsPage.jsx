@@ -36,13 +36,6 @@ export default function ParticipantsPage() {
     );
   });
 
-  function formatLastActive(timestamp) {
-    if (!timestamp) return "—";
-    const date = new Date(timestamp);
-    if (Number.isNaN(date.getTime())) return "—";
-    return date.toLocaleString();
-  }
-
   return (
     <div className="adb-page">
       <header className="adb-page-head">
@@ -93,7 +86,7 @@ export default function ParticipantsPage() {
                   <th>Institution</th>
                   <th>Designation</th>
                   <th>Sessions Joined</th>
-                  <th>Last Active</th>
+                  <th>Average Accuracy</th>
                 </tr>
               </thead>
               <tbody>
@@ -104,7 +97,19 @@ export default function ParticipantsPage() {
                     <td>{row.institution || "—"}</td>
                     <td>{row.designation || "—"}</td>
                     <td>{row.sessionsJoined}</td>
-                    <td>{formatLastActive(row.lastActive)}</td>
+                    <td>
+                      {row.accuracy === null ? (
+                        "—"
+                      ) : (
+                        <span
+                          className={
+                            row.accuracy >= 60 ? "score-good" : "score-low"
+                          }
+                        >
+                          {row.accuracy}%
+                        </span>
+                      )}
+                    </td>
                   </tr>
                 ))}
               </tbody>

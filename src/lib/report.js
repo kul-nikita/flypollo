@@ -17,6 +17,15 @@ export async function readAnswersByQuestion(db, sessionId) {
   return map;
 }
 
+export function parseTimestamp(value) {
+  if (typeof value === "number") return value;
+  if (typeof value === "string" && value) {
+    const time = Date.parse(value);
+    return Number.isNaN(time) ? null : time;
+  }
+  return null;
+}
+
 function buildRows(participantProfiles, questions, answers) {
   const scores = new Map();
   for (const [questionIndex, data] of answers) {
@@ -174,17 +183,33 @@ export async function listParticipantStats(db) {
   const joined = new Map();
   for (const sessionDoc of sessionsSnap.docs) {
     const data = sessionDoc.data() || {};
-    const sessionName = data.sessionName || sessionDoc.id;
+    const questions = Array.isArray(data.questions) ? data.questions : [];
     const answers = await readAnswersByQuestion(db, sessionDoc.id);
-    for (const [participantId, byQuestion] of answers) {
-      const entry = joined.get(participantId) || { sessions: new Set(), last: 0 };
-      entry.sessions.add(sessionName);
-      for (const answer of Object.values(byQuestion)) {
-        if (answer && typeof answer.timestamp === "number" && answer.timestamp > entry.last) {
-          entry.last = answer.timestamp;
+    for (const [questionIndex, byParticipant] of answers) {
+      const correctIndex = questions[questionIndex]?.correctIndex;
+      for (const [participantId, answer] of Object.entries(byParticipant || {})) {
+        if (!answer) continue;
+        const entry =
+          joined.get(participantId) || {
+            sessions: new Set(),
+            last: 0,
+            answered: 0,
+            correct: 0,
+          };
+        entry.sessions.add(sessionDoc.id);
+        const time = parseTimestamp(answer.timestamp);
+        if (time !== null && time > entry.last) entry.last = time;
+        if (typeof answer.selectedIndex === "number") {
+          entry.answered += 1;
+          if (
+            Number.isInteger(correctIndex) &&
+            answer.selectedIndex === correctIndex
+          ) {
+            entry.correct += 1;
+          }
         }
+        joined.set(participantId, entry);
       }
-      joined.set(participantId, entry);
     }
   }
 
@@ -199,6 +224,12 @@ export async function listParticipantStats(db) {
       designation: p.designation || "",
       sessionsJoined: stats ? stats.sessions.size : 0,
       lastActive: stats ? stats.last : 0,
+      answered: stats ? stats.answered : 0,
+      correct: stats ? stats.correct : 0,
+      accuracy:
+        stats && stats.answered > 0
+          ? Math.round((stats.correct / stats.answered) * 100)
+          : null,
     });
   }
   rows.sort((a, b) => a.name.localeCompare(b.name));
@@ -237,8 +268,9 @@ export async function listParticipantSessions(db, participantId) {
       ) {
         correct += 1;
       }
-      if (typeof entry.timestamp === "number" && entry.timestamp > lastActive) {
-        lastActive = entry.timestamp;
+      const lastTime = parseTimestamp(entry.timestamp);
+      if (lastTime !== null && lastTime > lastActive) {
+        lastActive = lastTime;
       }
     }
     if (!found) continue;

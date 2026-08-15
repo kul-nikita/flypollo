@@ -11,9 +11,9 @@ function jsonResponse(statusCode, payload) {
   });
 }
 
-const DEFAULT_MODEL = "gemini-flash-latest";
+const DEFAULT_MODEL = "llama-3.3-70b-versatile";
 const REQUEST_TIMEOUT_MS = 24000;
-const GEMINI_BASE_URL = "https://generativelanguage.googleapis.com/v1beta/models";
+const GROQ_BASE_URL = "https://api.groq.com/openai/v1/chat/completions";
 
 const systemPrompt = [
   "You are an assistant generating one multiple-choice question for hospital staff training.",
@@ -22,13 +22,13 @@ const systemPrompt = [
   "Make the question clinically accurate and the explanation educational.",
 ].join(" ");
 
-function geminiFailure(message, statusCode) {
+function groqFailure(message, statusCode) {
   const error = new Error(message);
   error.statusCode = statusCode;
   return error;
 }
 
-function geminiErrorMessage(detail) {
+function groqErrorMessage(detail) {
   try {
     const parsed = JSON.parse(detail);
     if (parsed && typeof parsed.error?.message === "string") {
@@ -40,70 +40,66 @@ function geminiErrorMessage(detail) {
   return String(detail || "").trim();
 }
 
-function classifyGeminiError(status, detail, model) {
-  const message = geminiErrorMessage(detail);
+function classifyGroqError(status, detail, model) {
+  const message = groqErrorMessage(detail);
   if (status === 401 || status === 403 || (status === 400 && /api key/i.test(message))) {
-    return geminiFailure(
-      "The Gemini API key is invalid. Check GEMINI_API_KEY in your Netlify environment settings.",
+    return groqFailure(
+      "The Groq API key is invalid. Check GROQ_API_KEY in your Netlify environment settings.",
       500
     );
   }
   if (status === 429) {
-    return geminiFailure(
-      "The Gemini API rate limit was exceeded. Wait a moment and try again.",
+    return groqFailure(
+      "The Groq API rate limit was exceeded. Wait a moment and try again.",
       503
     );
   }
   if (status === 404 && /model/i.test(message)) {
-    return geminiFailure(
-      `The Gemini model "${model}" is not available. Set MODEL_NAME in your Netlify environment to a valid model such as ${DEFAULT_MODEL}.`,
+    return groqFailure(
+      `The Groq model "${model}" is not available. Set MODEL_NAME in your Netlify environment to a valid model such as ${DEFAULT_MODEL}.`,
       500
     );
   }
   if (status >= 500) {
-    return geminiFailure(
-      `The Gemini API is temporarily unavailable (${status}). Try again in a moment.`,
+    return groqFailure(
+      `The Groq API is temporarily unavailable (${status}). Try again in a moment.`,
       502
     );
   }
-  return geminiFailure(`Gemini API error (${status}): ${message || detail}`, 502);
+  return groqFailure(`Groq API error (${status}): ${message || detail}`, 502);
 }
 
-async function callGemini(apiKey, model, prompt) {
-  const url = `${GEMINI_BASE_URL}/${model}:generateContent?key=${encodeURIComponent(apiKey)}`;
+async function callGroq(apiKey, model, prompt) {
   const timeoutMs = Number(process.env.REQUEST_TIMEOUT_MS) || REQUEST_TIMEOUT_MS;
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), timeoutMs);
 
   let response;
   try {
-    response = await fetch(url, {
+    response = await fetch(GROQ_BASE_URL, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
+        Authorization: `Bearer ${apiKey}`,
       },
       body: JSON.stringify({
-        systemInstruction: { parts: [{ text: systemPrompt }] },
-        contents: [
-          {
-            role: "user",
-            parts: [{ text: prompt }],
-          },
+        model,
+        temperature: 0.7,
+        max_tokens: 512,
+        response_format: { type: "json_object" },
+        messages: [
+          { role: "system", content: systemPrompt },
+          { role: "user", content: prompt },
         ],
-        generationConfig: {
-          temperature: 0.7,
-          maxOutputTokens: 512,
-          responseMimeType: "application/json",
-        },
       }),
       signal: controller.signal,
     });
   } catch (err) {
     if (err.name === "AbortError") {
-      throw geminiFailure("The Gemini API request timed out. Try again.", 504);
+      throw groqFailure("The Groq API request timed out. Try again.", 504);
     }
-    throw geminiFailure(
-      `Could not reach the Gemini API (${err.message}). Check your network connection and try again.`,
+    throw groqFailure(
+      `Could not reach the Groq API (${err.message}). Check your network connection and try again.`,
       502
     );
   } finally {
@@ -111,14 +107,13 @@ async function callGemini(apiKey, model, prompt) {
   }
 
   if (!response.ok) {
-    throw classifyGeminiError(response.status, await response.text(), model);
+    throw classifyGroqError(response.status, await response.text(), model);
   }
 
   const data = await response.json();
-  const text =
-    data.candidates?.[0]?.content?.parts?.map((part) => part.text ?? "").join("") ?? "";
+  const text = data.choices?.[0]?.message?.content ?? "";
   if (!text.trim()) {
-    throw geminiFailure("Gemini returned an empty response", 502);
+    throw groqFailure("Groq returned an empty response", 502);
   }
   return text;
 }
@@ -171,10 +166,10 @@ export default async function handler(req) {
     return jsonResponse(405, { error: "Method not allowed" });
   }
 
-  const apiKey = process.env.GEMINI_API_KEY;
+  const apiKey = process.env.GROQ_API_KEY;
   if (!apiKey) {
     return jsonResponse(500, {
-      error: "GEMINI_API_KEY is not set on the server",
+      error: "GROQ_API_KEY is not set on the server",
     });
   }
 
@@ -195,7 +190,7 @@ export default async function handler(req) {
 
   let rawText;
   try {
-    rawText = await callGemini(apiKey, model, prompt);
+    rawText = await callGroq(apiKey, model, prompt);
   } catch (err) {
     return jsonResponse(err.statusCode || 502, { error: err.message });
   }
@@ -205,7 +200,7 @@ export default async function handler(req) {
     question = validateQuestion(parseQuestion(rawText));
   } catch (err) {
     return jsonResponse(502, {
-      error: `The Gemini API returned a response that could not be used: ${err.message}`,
+      error: `The Groq API returned a response that could not be used: ${err.message}`,
     });
   }
 

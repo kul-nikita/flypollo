@@ -7,7 +7,7 @@ the results the moment they answer.
 
 - **Frontend:** React 19 + Vite 6, served as a static SPA
 - **Serverless functions:** Netlify Functions (`netlify/functions`) — e.g. a
-  Gemini-powered MCQ generator
+  Groq-powered MCQ generator
 - **Backend services:** Firebase — Firestore for the participant registry and
   question sets, Realtime Database for live session control
 - **Hosting:** Netlify (frontend + functions together)
@@ -20,14 +20,14 @@ the results the moment they answer.
 ├── netlify/
 │   └── functions/
 │       ├── generate-question.js   # (legacy, unused)
-│       └── generate-mcq.js        # Transcript → 10 MCQs via Gemini
+│       └── generate-mcq.js        # Transcript → 2/5/10 MCQs via Groq
 ├── public/
-│   └── favicon.svg
+│   └── logo.png
 ├── src/
 │   ├── config/
 │   │   └── admin.js               # VITE_ADMIN_EMAILS whitelist (env-driven)
 │   ├── components/
-│   │   ├── Logo.jsx               # SVG brand mark
+│   │   ├── Logo.jsx               # PNG brand mark
 │   │   ├── Toasts.jsx             # Toast provider + useToast hook
 │   │   ├── ConfirmDialog.jsx      # Accessible confirmation dialog
 │   │   ├── AdminLayout.jsx        # Sidebar + topbar shell for the console
@@ -68,7 +68,7 @@ the results the moment they answer.
 
 - Node.js 20+ and npm
 - Netlify CLI: `npm install -g netlify-cli`
-- A Google AI (Gemini) API key for MCQ generation
+- A Groq API key for MCQ generation (`GROQ_API_KEY`)
 - (Optional) A Firebase project for live session state
 
 ## Local Setup
@@ -82,7 +82,7 @@ Firebase configuration comes from `.env` — Vite exposes the `VITE_FIREBASE_*`
 variables to the browser at dev and build time. If `.env` is missing, copy
 `.env.example` to `.env` and fill in your Firebase web config values.
 
-Server-side variables (`GEMINI_API_KEY` for `generate-mcq` and the legacy
+Server-side variables (`GROQ_API_KEY` for `generate-mcq` and the legacy
 `generate-question`, optional `MODEL_NAME`) are added separately — they are
 only used by the Netlify Functions, not the frontend.
 
@@ -93,10 +93,10 @@ npm install
 cp .env.example .env   # or on Windows: Copy-Item .env.example .env
 ```
 
-Fill in the variables in `.env`. `generate-mcq` reads `GEMINI_API_KEY` from the
-environment; the Vite frontend reads `VITE_FIREBASE_*`. The Gemini model used by
+Fill in the variables in `.env`. `generate-mcq` reads `GROQ_API_KEY` from the
+environment; the Vite frontend reads `VITE_FIREBASE_*`. The Groq model used by
 `generate-mcq` can be overridden with `MODEL_NAME` (defaults to
-`gemini-flash-latest`).
+`llama-3.3-70b-versatile`).
 
 ### Admin access
 

@@ -56,6 +56,8 @@ export function useAdminStore(adminEmail) {
   });
   const [creating, setCreating] = useState(false);
   const [file, setFile] = useState(null);
+  const [questionCount, setQuestionCount] = useState(10);
+  const [defaultTimerSeconds, setDefaultTimerSeconds] = useState(DEFAULT_TIMER_SECONDS);
   const [generating, setGenerating] = useState(false);
   const [questions, setQuestions] = useState([]);
   const [live, setLive] = useState(DEFAULT_LIVE);
@@ -192,7 +194,7 @@ export function useAdminStore(adminEmail) {
     QRCode.toDataURL(shareUrl, {
       width: 240,
       margin: 1,
-      color: { dark: "#0f172a", light: "#ffffff" },
+      color: { dark: "#111111", light: "#ffffff" },
     })
       .then((url) => {
         if (!cancelled) setQrDataUrl(url);
@@ -440,13 +442,18 @@ export function useAdminStore(adminEmail) {
       const res = await fetch(FUNCTION_URL, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ transcript }),
+        body: JSON.stringify({ transcript, count: questionCount }),
       });
       const data = await res.json();
       if (!res.ok) {
         throw new Error(data.error || `Request failed (${res.status})`);
       }
-      setQuestions((data.questions || []).map(normalizeQuestion));
+      setQuestions(
+        (data.questions || []).map((q) => ({
+          ...normalizeQuestion(q),
+          timerSeconds: defaultTimerSeconds,
+        }))
+      );
       showToast(
         `${data.questions?.length || 0} questions generated. Review them below.`,
         "success"
@@ -483,7 +490,29 @@ export function useAdminStore(adminEmail) {
   }
 
   function addQuestion(type = "mcq") {
-    setQuestions((items) => [...items, emptyQuestion(type)]);
+    setQuestions((items) => [
+      ...items,
+      { ...emptyQuestion(type), timerSeconds: defaultTimerSeconds },
+    ]);
+  }
+
+  function setDefaultTimer(value) {
+    const timerSeconds = Math.min(300, Math.max(0, Number(value) || 0));
+    setDefaultTimerSeconds(timerSeconds);
+    setQuestions((items) =>
+      items.map((item) => ({ ...item, timerSeconds }))
+    );
+  }
+
+  function updateQuestionTimer(index, value) {
+    const timerSeconds = Math.min(300, Math.max(0, Number(value) || 0));
+    setQuestions((items) =>
+      items.map((item, i) => {
+        if (item.type === "mcq") return { ...item, timerSeconds };
+        if (i === index) return { ...item, timerSeconds };
+        return item;
+      })
+    );
   }
 
   function setQuestionType(index, type) {
@@ -594,7 +623,7 @@ export function useAdminStore(adminEmail) {
         qrDataUrl = await QRCode.toDataURL(shareUrl, {
           width: 240,
           margin: 1,
-          color: { dark: "#0f172a", light: "#ffffff" },
+          color: { dark: "#111111", light: "#ffffff" },
         });
       } catch {
         qrDataUrl = "";
@@ -939,6 +968,11 @@ export function useAdminStore(adminEmail) {
     setCreateForm,
     creating,
     file,
+    questionCount,
+    setQuestionCount,
+    defaultTimerSeconds,
+    setDefaultTimer,
+    updateQuestionTimer,
     generating,
     questions,
     live,

@@ -12,62 +12,81 @@ function jsonResponse(statusCode, payload) {
 }
 
 const MAX_TRANSCRIPT_CHARS = 120000;
-// Per-attempt Gemini timeout. Must fit inside FUNCTION_MAX_DURATION_MS so the
+export const ALLOWED_COUNTS = [2, 5, 10];
+export const DEFAULT_COUNT = 10;
+// Per-attempt Groq timeout. Must fit inside FUNCTION_MAX_DURATION_MS so the
 // function always returns before Netlify kills it. Defaults to the full
 // 24s window (26s max duration minus 2s deadline slack). Override with
 // REQUEST_TIMEOUT_MS in the Netlify environment if needed.
 export const DEFAULT_REQUEST_TIMEOUT_MS = 24000;
 // Must match maxDuration = 26 in netlify.toml (max on the free plan).
 export const FUNCTION_MAX_DURATION_MS = 26 * 1000;
-// Time reserved after the last Gemini call for parsing, validation, and
+// Time reserved after the last Groq call for parsing, validation, and
 // building the response so the total never reaches maxDuration.
 export const DEADLINE_SLACK_MS = 2000;
 // A retry only helps if a meaningful budget remains.
 export const RETRY_MIN_BUDGET_MS = 5000;
-const DEFAULT_MODEL = "gemini-flash-latest";
-const GEMINI_BASE_URL = "https://generativelanguage.googleapis.com/v1beta/models";
+// Production model verified against Groq's supported-models docs
+// (https://console.groq.com/docs/models). Override with MODEL_NAME.
+const DEFAULT_MODEL = "llama-3.3-70b-versatile";
+const GROQ_BASE_URL = "https://api.groq.com/openai/v1/chat/completions";
 
-export function geminiWindowMs() {
+export function groqWindowMs() {
   return FUNCTION_MAX_DURATION_MS - DEADLINE_SLACK_MS;
 }
 
 export function attemptBudget(requestTimeoutMs, elapsedMs) {
-  const remaining = Math.min(geminiWindowMs(), geminiWindowMs() - elapsedMs);
+  const remaining = Math.min(groqWindowMs(), groqWindowMs() - elapsedMs);
   return Math.max(0, Math.min(requestTimeoutMs, remaining));
 }
 
 export function canRetry(elapsedMs) {
-  return geminiWindowMs() - elapsedMs >= RETRY_MIN_BUDGET_MS;
+  return groqWindowMs() - elapsedMs >= RETRY_MIN_BUDGET_MS;
 }
 
-const baseSystemPrompt = [
-  "You are an academic education assistant generating multiple-choice quiz questions for faculty development program (FDP) participants.",
-  "Respond with ONLY valid JSON and nothing else — no markdown, no code fences, no commentary.",
-  'The JSON must be an array of exactly 10 objects. Each object must have this exact shape:',
-  '{"question": string, "options": [string, string, string, string], "correctIndex": number}',
-  "Requirements:",
-  "- Base every question strictly on content found in the provided transcript.",
-  "- options is an array of exactly 4 strings.",
-  "- correctIndex is the 0-based index of the correct option, from 0 to 3 inclusive.",
-  "- Questions must be accurate and answerable from the transcript alone.",
-  "- Vary the difficulty across the set.",
-].join("\n");
+export function normalizeCount(value) {
+  if (value === undefined || value === null || value === "") {
+    return DEFAULT_COUNT;
+  }
+  const parsed = Number(value);
+  if (!Number.isInteger(parsed) || !ALLOWED_COUNTS.includes(parsed)) {
+    return null;
+  }
+  return parsed;
+}
 
-const retrySystemPrompt = baseSystemPrompt + [
-  "",
-  "STRICT FORMAT REMINDER: Your previous response could not be parsed as valid JSON.",
-  'Return the array of 10 question objects only, starting with the character "[" and ending with the character "]".',
-  "No prose before or after. No markdown code fences.",
-  'Each object exactly: {"question": string, "options": [string, string, string, string], "correctIndex": number (0-3)}.',
-].join("\n");
+function baseSystemPrompt(count) {
+  return [
+    "You are an academic education assistant generating multiple-choice quiz questions for faculty development program (FDP) participants.",
+    "Respond with ONLY valid JSON and nothing else — no markdown, no code fences, no commentary.",
+    `The JSON must be an array of exactly ${count} objects. Each object must have this exact shape:`,
+    '{"question": string, "options": [string, string, string, string], "correctIndex": number}',
+    "Requirements:",
+    "- Base every question strictly on content found in the provided transcript.",
+    "- options is an array of exactly 4 strings.",
+    "- correctIndex is the 0-based index of the correct option, from 0 to 3 inclusive.",
+    "- Questions must be accurate and answerable from the transcript alone.",
+    "- Vary the difficulty across the set.",
+  ].join("\n");
+}
 
-function geminiFailure(message, statusCode) {
+function retrySystemPrompt(count) {
+  return baseSystemPrompt(count) + [
+    "",
+    "STRICT FORMAT REMINDER: Your previous response could not be parsed as valid JSON.",
+    `Return the array of ${count} question objects only, starting with the character "[" and ending with the character "]".`,
+    "No prose before or after. No markdown code fences.",
+    'Each object exactly: {"question": string, "options": [string, string, string, string], "correctIndex": number (0-3)}.',
+  ].join("\n");
+}
+
+function groqFailure(message, statusCode) {
   const error = new Error(message);
   error.statusCode = statusCode;
   return error;
 }
 
-function geminiErrorMessage(detail) {
+function groqErrorMessage(detail) {
   try {
     const parsed = JSON.parse(detail);
     if (parsed && typeof parsed.error?.message === "string") {
@@ -79,69 +98,65 @@ function geminiErrorMessage(detail) {
   return String(detail || "").trim();
 }
 
-function classifyGeminiError(status, detail, model) {
-  const message = geminiErrorMessage(detail);
+function classifyGroqError(status, detail, model) {
+  const message = groqErrorMessage(detail);
   if (status === 401 || status === 403 || (status === 400 && /api key/i.test(message))) {
-    return geminiFailure(
-      "The Gemini API key is invalid. Check GEMINI_API_KEY in your Netlify environment settings.",
+    return groqFailure(
+      "The Groq API key is invalid. Check GROQ_API_KEY in your Netlify environment settings.",
       500
     );
   }
   if (status === 429) {
-    return geminiFailure(
-      "The Gemini API rate limit was exceeded. Wait a moment and try again.",
+    return groqFailure(
+      "The Groq API rate limit was exceeded. Wait a moment and try again.",
       503
     );
   }
   if (status === 404 && /model/i.test(message)) {
-    return geminiFailure(
-      `The Gemini model "${model}" is not available. Set MODEL_NAME in your Netlify environment to a valid model such as ${DEFAULT_MODEL}.`,
+    return groqFailure(
+      `The Groq model "${model}" is not available. Set MODEL_NAME in your Netlify environment to a valid model such as ${DEFAULT_MODEL}.`,
       500
     );
   }
   if (status >= 500) {
-    return geminiFailure(
-      `The Gemini API is temporarily unavailable (${status}). Try again in a moment.`,
+    return groqFailure(
+      `The Groq API is temporarily unavailable (${status}). Try again in a moment.`,
       502
     );
   }
-  return geminiFailure(`Gemini API error (${status}): ${message || detail}`, 502);
+  return groqFailure(`Groq API error (${status}): ${message || detail}`, 502);
 }
 
-async function callGemini(apiKey, model, system, transcript, timeoutMs) {
-  const url = `${GEMINI_BASE_URL}/${model}:generateContent?key=${encodeURIComponent(apiKey)}`;
+async function callGroq(apiKey, model, system, transcript, timeoutMs) {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), timeoutMs);
 
   let response;
   try {
-    response = await fetch(url, {
+    response = await fetch(GROQ_BASE_URL, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
+        Authorization: `Bearer ${apiKey}`,
       },
       body: JSON.stringify({
-        systemInstruction: { parts: [{ text: system }] },
-        contents: [
-          {
-            role: "user",
-            parts: [{ text: `Transcript:\n\n${transcript}` }],
-          },
+        model,
+        temperature: 0.4,
+        max_tokens: 8192,
+        response_format: { type: "json_object" },
+        messages: [
+          { role: "system", content: system },
+          { role: "user", content: `Transcript:\n\n${transcript}` },
         ],
-        generationConfig: {
-          temperature: 0.4,
-          maxOutputTokens: 8192,
-          responseMimeType: "application/json",
-        },
       }),
       signal: controller.signal,
     });
   } catch (err) {
     if (err.name === "AbortError") {
-      throw geminiFailure("The Gemini API request timed out. Try again.", 504);
+      throw groqFailure("The Groq API request timed out. Try again.", 504);
     }
-    throw geminiFailure(
-      `Could not reach the Gemini API (${err.message}). Check your network connection and try again.`,
+    throw groqFailure(
+      `Could not reach the Groq API (${err.message}). Check your network connection and try again.`,
       502
     );
   } finally {
@@ -149,14 +164,13 @@ async function callGemini(apiKey, model, system, transcript, timeoutMs) {
   }
 
   if (!response.ok) {
-    throw classifyGeminiError(response.status, await response.text(), model);
+    throw classifyGroqError(response.status, await response.text(), model);
   }
 
   const data = await response.json();
-  const text =
-    data.candidates?.[0]?.content?.parts?.map((part) => part.text ?? "").join("") ?? "";
+  const text = data.choices?.[0]?.message?.content ?? "";
   if (!text.trim()) {
-    throw geminiFailure("Gemini returned an empty response", 502);
+    throw groqFailure("Groq returned an empty response", 502);
   }
   return text;
 }
@@ -174,12 +188,12 @@ function parseQuestions(text) {
   return JSON.parse(stripped.slice(start, end + 1));
 }
 
-function validateQuestions(value) {
+function validateQuestions(value, expectedCount) {
   if (!Array.isArray(value)) {
     throw new Error("Model output is not an array");
   }
-  if (value.length !== 10) {
-    throw new Error(`Expected 10 questions, got ${value.length}`);
+  if (value.length !== expectedCount) {
+    throw new Error(`Expected ${expectedCount} questions, got ${value.length}`);
   }
   return value.map((item, index) => {
     if (!item || typeof item !== "object") {
@@ -213,25 +227,32 @@ export default async function handler(req) {
     return jsonResponse(405, { error: "Method not allowed" });
   }
 
-  const apiKey = process.env.GEMINI_API_KEY;
+  const apiKey = process.env.GROQ_API_KEY;
   if (!apiKey) {
     return jsonResponse(500, {
-      error: "GEMINI_API_KEY is not set on the server",
+      error: "GROQ_API_KEY is not set on the server",
     });
   }
 
   const model = process.env.MODEL_NAME || DEFAULT_MODEL;
 
   let transcript = "";
+  let count = DEFAULT_COUNT;
   try {
     const body = await req.json();
     transcript = String(body?.transcript ?? "").trim();
+    count = normalizeCount(body?.count);
   } catch {
     transcript = "";
   }
 
   if (!transcript) {
     return jsonResponse(400, { error: "transcript is required" });
+  }
+  if (count === null) {
+    return jsonResponse(400, {
+      error: `count must be one of ${ALLOWED_COUNTS.join(", ")}`,
+    });
   }
   if (transcript.length > MAX_TRANSCRIPT_CHARS) {
     transcript = transcript.slice(0, MAX_TRANSCRIPT_CHARS);
@@ -245,14 +266,14 @@ export default async function handler(req) {
   const firstBudget = attemptBudget(requestTimeoutMs, Date.now() - startedAt);
   if (firstBudget <= 0) {
     return jsonResponse(504, {
-      error: "The Gemini request timed out before it could start. Try again.",
+      error: "The Groq request timed out before it could start. Try again.",
     });
   }
   try {
-    rawText = await callGemini(
+    rawText = await callGroq(
       apiKey,
       model,
-      baseSystemPrompt,
+      baseSystemPrompt(count),
       transcript,
       firstBudget
     );
@@ -262,7 +283,7 @@ export default async function handler(req) {
 
   let questions;
   try {
-    questions = validateQuestions(parseQuestions(rawText));
+    questions = validateQuestions(parseQuestions(rawText), count);
   } catch (firstError) {
     const retryElapsedMs = Date.now() - startedAt;
     if (!canRetry(retryElapsedMs)) {
@@ -271,14 +292,14 @@ export default async function handler(req) {
       });
     }
     try {
-      const retryText = await callGemini(
+      const retryText = await callGroq(
         apiKey,
         model,
-        retrySystemPrompt,
+        retrySystemPrompt(count),
         transcript,
         attemptBudget(requestTimeoutMs, retryElapsedMs)
       );
-      questions = validateQuestions(parseQuestions(retryText));
+      questions = validateQuestions(parseQuestions(retryText), count);
     } catch (retryError) {
       return jsonResponse(502, {
         error: `Could not parse model output as valid JSON after a retry. First attempt: ${firstError.message}. After retry: ${retryError.message}`,

@@ -7,14 +7,17 @@ import handler, {
   RETRY_MIN_BUDGET_MS,
   attemptBudget,
   canRetry,
-  geminiWindowMs,
+  groqWindowMs,
+  ALLOWED_COUNTS,
+  DEFAULT_COUNT,
+  normalizeCount,
 } from "../netlify/functions/generate-mcq.js";
 
 const originalFetch = globalThis.fetch;
 
 afterEach(() => {
   globalThis.fetch = originalFetch;
-  delete process.env.GEMINI_API_KEY;
+  delete process.env.GROQ_API_KEY;
   delete process.env.MODEL_NAME;
   delete process.env.REQUEST_TIMEOUT_MS;
 });
@@ -37,15 +40,13 @@ async function invoke(event) {
   };
 }
 
-function geminiOk(partsText) {
+function groqOk(contentText) {
   return {
     ok: true,
     status: 200,
     async json() {
       return {
-        candidates: [
-          { content: { role: "model", parts: [{ text: partsText }] } },
-        ],
+        choices: [{ message: { role: "assistant", content: contentText } }],
       };
     },
     async text() {
@@ -54,7 +55,7 @@ function geminiOk(partsText) {
   };
 }
 
-function geminiError(status, detail) {
+function groqError(status, detail) {
   return {
     ok: false,
     status,
@@ -120,85 +121,90 @@ const FDP_TRANSCRIPT = [
 const TRANSCRIPT_MARKER = "Bloom's taxonomy";
 
 function runTenQuestionSuccess(transcript) {
-  const mock = installFetch([geminiOk(TEN_JSON)]);
+  const mock = installFetch([groqOk(TEN_JSON)]);
   return { mock, res: invoke(postEvent({ transcript })) };
 }
 
+function questionsJson(count) {
+  const items = TOPICS.slice(0, count).map((topic, i) => ({
+    question: `Which statement about ${topic} is correct?`,
+    options: ["Option A", "Option B", "Option C", "Option D"],
+    correctIndex: i % 4,
+  }));
+  return JSON.stringify(items);
+}
+
 describe("generate-mcq.js", () => {
-  test("reads process.env.GEMINI_API_KEY and rejects when missing", async () => {
-    const mock = installFetch([geminiOk(TEN_JSON)]);
-    delete process.env.GEMINI_API_KEY;
+  test("reads process.env.GROQ_API_KEY and rejects when missing", async () => {
+    const mock = installFetch([groqOk(TEN_JSON)]);
+    delete process.env.GROQ_API_KEY;
     const res = await invoke(postEvent({ transcript: "any" }));
     assert.equal(res.statusCode, 500);
     const data = res.body;
-    assert.match(data.error, /GEMINI_API_KEY/);
+    assert.match(data.error, /GROQ_API_KEY/);
     assert.match(data.error, /not set/);
-    assert.equal(mock.count(), 0, "must not call Gemini without a key");
+    assert.equal(mock.count(), 0, "must not call Groq without a key");
   });
 
-  test("uses gemini-flash-latest model by default", async () => {
-    process.env.GEMINI_API_KEY = "test-key-123";
+  test("uses llama-3.3-70b-versatile model by default", async () => {
+    process.env.GROQ_API_KEY = "test-key-123";
     delete process.env.MODEL_NAME;
     const { mock, res } = runTenQuestionSuccess("any transcript");
     const result = await res;
     assert.equal(result.statusCode, 200);
-    assert.match(mock.last().url, /\/models\/gemini-flash-latest:generateContent/);
+    assert.equal(mock.last().body.model, "llama-3.3-70b-versatile");
   });
 
   test("honors MODEL_NAME override", async () => {
-    process.env.GEMINI_API_KEY = "test-key-123";
-    process.env.MODEL_NAME = "gemini-2.5-pro";
+    process.env.GROQ_API_KEY = "test-key-123";
+    process.env.MODEL_NAME = "openai/gpt-oss-120b";
     const { mock, res } = runTenQuestionSuccess("any transcript");
     await res;
-    assert.match(mock.last().url, /\/models\/gemini-2.5-pro:generateContent/);
+    assert.equal(mock.last().body.model, "openai/gpt-oss-120b");
   });
 
-  test("uses the correct Gemini generateContent endpoint", async () => {
-    process.env.GEMINI_API_KEY = "test-key-123";
+  test("uses the Groq chat completions endpoint", async () => {
+    process.env.GROQ_API_KEY = "test-key-123";
     const { mock, res } = runTenQuestionSuccess("any transcript");
     await res;
-    assert.ok(
-      mock.last().url.startsWith(
-        "https://generativelanguage.googleapis.com/v1beta/models/"
-      ),
-      mock.last().url
-    );
-    assert.ok(
-      mock.last().url.includes(":generateContent?key=test-key-123"),
-      mock.last().url
+    assert.equal(
+      mock.last().url,
+      "https://api.groq.com/openai/v1/chat/completions"
     );
   });
 
-  test("sends correct request headers (key in URL, no x-api-key)", async () => {
-    process.env.GEMINI_API_KEY = "test-key-123";
+  test("sends correct request headers (Bearer auth, no x-api-key)", async () => {
+    process.env.GROQ_API_KEY = "test-key-123";
     const { mock, res } = runTenQuestionSuccess("any transcript");
     await res;
     const headers = mock.last().options.headers;
     assert.equal(headers["Content-Type"], "application/json");
     assert.equal(headers["content-type"], undefined);
+    assert.equal(headers["Authorization"], "Bearer test-key-123");
     assert.equal(headers["x-api-key"], undefined);
     assert.equal(headers["anthropic-version"], undefined);
   });
 
-  test("sends correct request body (systemInstruction, contents, generationConfig)", async () => {
-    process.env.GEMINI_API_KEY = "test-key-123";
+  test("sends correct request body (system/user messages, JSON mode)", async () => {
+    process.env.GROQ_API_KEY = "test-key-123";
     const { mock, res } = runTenQuestionSuccess("any transcript");
     await res;
     const body = mock.last().body;
-    assert.equal(typeof body.systemInstruction, "object");
-    assert.equal(body.systemInstruction.parts[0].text, baseSystemPromptText());
-    assert.equal(body.contents[0].role, "user");
-    assert.ok(body.contents[0].parts[0].text.startsWith("Transcript:\n\n"));
-    assert.equal(typeof body.generationConfig, "object");
-    assert.equal(body.generationConfig.maxOutputTokens, 8192);
-    assert.equal(body.generationConfig.responseMimeType, "application/json");
+    assert.equal(body.messages.length, 2);
+    assert.equal(body.messages[0].role, "system");
+    assert.equal(body.messages[0].content, baseSystemPromptText());
+    assert.equal(body.messages[1].role, "user");
+    assert.ok(body.messages[1].content.startsWith("Transcript:\n\n"));
+    assert.deepEqual(body.response_format, { type: "json_object" });
+    assert.equal(body.max_tokens, 8192);
+    assert.equal(body.temperature, 0.4);
   });
 
   test("formats the system prompt for 10-MCQ JSON output", async () => {
-    process.env.GEMINI_API_KEY = "test-key-123";
+    process.env.GROQ_API_KEY = "test-key-123";
     const { mock, res } = runTenQuestionSuccess("any transcript");
     await res;
-    const system = mock.last().body.systemInstruction.parts[0].text;
+    const system = mock.last().body.messages[0].content;
     assert.match(system, /exactly 10 objects/);
     assert.match(system, /"options": \[string, string, string, string\]/);
     assert.match(system, /correctIndex/);
@@ -206,18 +212,57 @@ describe("generate-mcq.js", () => {
     assert.match(system, /exactly 4 strings/);
   });
 
+  test("normalizeCount defaults to 10 and only allows 2, 5, 10", () => {
+    assert.equal(normalizeCount(undefined), DEFAULT_COUNT);
+    assert.equal(normalizeCount(null), DEFAULT_COUNT);
+    assert.equal(normalizeCount(""), DEFAULT_COUNT);
+    assert.equal(normalizeCount("10"), 10);
+    for (const allowed of ALLOWED_COUNTS) {
+      assert.equal(normalizeCount(allowed), allowed);
+      assert.equal(normalizeCount(String(allowed)), allowed);
+    }
+    for (const bad of [0, 1, 3, 7, 11, 4.5, "abc"]) {
+      assert.equal(normalizeCount(bad), null, String(bad));
+    }
+  });
+
+  test("generates the requested number of questions (2, 5, 10)", async () => {
+    process.env.GROQ_API_KEY = "test-key-123";
+    for (const count of ALLOWED_COUNTS) {
+      const json = questionsJson(count);
+      const mock = installFetch([groqOk(json)]);
+      const res = await invoke(postEvent({ transcript: FDP_TRANSCRIPT, count }));
+      assert.equal(res.statusCode, 200, `count ${count}`);
+      assert.equal(res.body.count, count);
+      assert.equal(res.body.questions.length, count);
+      const system = mock.last().body.messages[0].content;
+      assert.match(system, new RegExp(`exactly ${count} objects`));
+    }
+  });
+
+  test("rejects an invalid count with 400 and no API call", async () => {
+    process.env.GROQ_API_KEY = "test-key-123";
+    for (const bad of [3, 7, 0, "abc"]) {
+      const mock = installFetch([groqOk(TEN_JSON)]);
+      const res = await invoke(postEvent({ transcript: FDP_TRANSCRIPT, count: bad }));
+      assert.equal(res.statusCode, 400, JSON.stringify(bad));
+      assert.match(res.body.error, /count must be one of 2, 5, 10/);
+      assert.equal(mock.count(), 0, "must not call Groq for an invalid count");
+    }
+  });
+
   test("injects the transcript into the request body", async () => {
-    process.env.GEMINI_API_KEY = "test-key-123";
+    process.env.GROQ_API_KEY = "test-key-123";
     const { mock, res } = runTenQuestionSuccess(FDP_TRANSCRIPT);
     await res;
-    const sent = mock.last().body.contents[0].parts[0].text;
+    const sent = mock.last().body.messages[1].content;
     assert.ok(sent.includes(TRANSCRIPT_MARKER), "transcript marker missing");
     assert.ok(sent.includes("course outcomes"), "transcript content missing");
     assert.ok(sent.includes("formative assessment"), "transcript content missing");
   });
 
   test("returns valid JSON with exactly 10 questions on success", async () => {
-    process.env.GEMINI_API_KEY = "test-key-123";
+    process.env.GROQ_API_KEY = "test-key-123";
     const { res } = runTenQuestionSuccess(FDP_TRANSCRIPT);
     const result = await res;
     assert.equal(result.statusCode, 200);
@@ -229,7 +274,7 @@ describe("generate-mcq.js", () => {
   });
 
   test("every question has question, options (length 4) and correctIndex", async () => {
-    process.env.GEMINI_API_KEY = "test-key-123";
+    process.env.GROQ_API_KEY = "test-key-123";
     const { res } = runTenQuestionSuccess(FDP_TRANSCRIPT);
     const data = (await res).body;
     for (const q of data.questions) {
@@ -242,7 +287,7 @@ describe("generate-mcq.js", () => {
   });
 
   test("correctIndex is always an integer in 0-3", async () => {
-    process.env.GEMINI_API_KEY = "test-key-123";
+    process.env.GROQ_API_KEY = "test-key-123";
     const { res } = runTenQuestionSuccess(FDP_TRANSCRIPT);
     const data = (await res).body;
     for (const q of data.questions) {
@@ -252,20 +297,20 @@ describe("generate-mcq.js", () => {
   });
 
   test("rejects questions whose correctIndex is out of range", async () => {
-    process.env.GEMINI_API_KEY = "test-key-123";
+    process.env.GROQ_API_KEY = "test-key-123";
     const bad = JSON.parse(TEN_JSON);
     bad[0].correctIndex = 7;
     const badJson = JSON.stringify(bad);
-    const mock = installFetch([geminiOk(badJson), geminiOk(badJson)]);
+    const mock = installFetch([groqOk(badJson), groqOk(badJson)]);
     const res = await invoke(postEvent({ transcript: "short" }));
     assert.equal(res.statusCode, 502);
     assert.match(res.body.error, /correctIndex out of range/);
     assert.equal(mock.count(), 2, "should retry before failing");
   });
 
-  test("handles malformed Gemini text gracefully (retry, then useful 502)", async () => {
-    process.env.GEMINI_API_KEY = "test-key-123";
-    const mock = installFetch([geminiOk("this is not json at all"), geminiOk("still nope")]);
+  test("handles malformed Groq text gracefully (retry, then useful 502)", async () => {
+    process.env.GROQ_API_KEY = "test-key-123";
+    const mock = installFetch([groqOk("this is not json at all"), groqOk("still nope")]);
     const res = await invoke(postEvent({ transcript: FDP_TRANSCRIPT }));
     assert.equal(res.statusCode, 502);
     const data = res.body;
@@ -274,14 +319,14 @@ describe("generate-mcq.js", () => {
     assert.match(data.error, /After retry:/);
     assert.equal(mock.count(), 2);
     assert.match(
-      mock.last().body.systemInstruction.parts[0].text,
+      mock.last().body.messages[0].content,
       /STRICT FORMAT REMINDER/
     );
   });
 
   test("recovers via retry when the first response is malformed", async () => {
-    process.env.GEMINI_API_KEY = "test-key-123";
-    const mock = installFetch([geminiOk("not json"), geminiOk(TEN_JSON)]);
+    process.env.GROQ_API_KEY = "test-key-123";
+    const mock = installFetch([groqOk("not json"), groqOk(TEN_JSON)]);
     const res = await invoke(postEvent({ transcript: FDP_TRANSCRIPT }));
     assert.equal(res.statusCode, 200);
     const data = res.body;
@@ -289,10 +334,10 @@ describe("generate-mcq.js", () => {
     assert.equal(mock.count(), 2);
   });
 
-  test("strips markdown code fences from Gemini output", async () => {
-    process.env.GEMINI_API_KEY = "test-key-123";
+  test("strips markdown code fences from Groq output", async () => {
+    process.env.GROQ_API_KEY = "test-key-123";
     const fenced = "```json\n" + TEN_JSON + "\n```";
-    const mock = installFetch([geminiOk(fenced)]);
+    const mock = installFetch([groqOk(fenced)]);
     const res = await invoke(postEvent({ transcript: FDP_TRANSCRIPT }));
     const data = res.body;
     assert.equal(data.questions.length, 10);
@@ -300,27 +345,27 @@ describe("generate-mcq.js", () => {
   });
 
   test("tolerates prose around the JSON array", async () => {
-    process.env.GEMINI_API_KEY = "test-key-123";
+    process.env.GROQ_API_KEY = "test-key-123";
     const withProse = "Here are the questions you asked for:\n\n" + TEN_JSON + "\n\nThat is all.";
-    const mock = installFetch([geminiOk(withProse)]);
+    const mock = installFetch([groqOk(withProse)]);
     const res = await invoke(postEvent({ transcript: FDP_TRANSCRIPT }));
     const data = res.body;
     assert.equal(data.questions.length, 10);
     assert.equal(mock.count(), 1);
   });
 
-  test("returns a useful 502 when Gemini returns an empty response", async () => {
-    process.env.GEMINI_API_KEY = "test-key-123";
-    const mock = installFetch([geminiOk("   ")]);
+  test("returns a useful 502 when Groq returns an empty response", async () => {
+    process.env.GROQ_API_KEY = "test-key-123";
+    const mock = installFetch([groqOk("   ")]);
     const res = await invoke(postEvent({ transcript: FDP_TRANSCRIPT }));
     assert.equal(res.statusCode, 502);
-    assert.match(res.body.error, /Gemini returned an empty response/);
+    assert.match(res.body.error, /Groq returned an empty response/);
     assert.equal(mock.count(), 1, "no retry for transport/empty failures");
   });
 
-  test("returns a friendly 503 when the Gemini rate limit is exceeded", async () => {
-    process.env.GEMINI_API_KEY = "test-key-123";
-    const mock = installFetch([geminiError(429, "rate limit exceeded")]);
+  test("returns a friendly 503 when the Groq rate limit is exceeded", async () => {
+    process.env.GROQ_API_KEY = "test-key-123";
+    const mock = installFetch([groqError(429, "rate limit exceeded")]);
     const res = await invoke(postEvent({ transcript: FDP_TRANSCRIPT }));
     assert.equal(res.statusCode, 503);
     const data = res.body;
@@ -330,38 +375,38 @@ describe("generate-mcq.js", () => {
   });
 
   test("returns a friendly error for an invalid API key", async () => {
-    process.env.GEMINI_API_KEY = "test-key-123";
+    process.env.GROQ_API_KEY = "test-key-123";
     const mock = installFetch([
-      geminiError(400, "API key not valid. Please pass a valid API key."),
+      groqError(400, "API key not valid. Please pass a valid API key."),
     ]);
     const res = await invoke(postEvent({ transcript: FDP_TRANSCRIPT }));
     assert.equal(res.statusCode, 500);
     const data = res.body;
-    assert.match(data.error, /GEMINI_API_KEY/);
+    assert.match(data.error, /GROQ_API_KEY/);
     assert.match(data.error, /invalid/);
     assert.equal(mock.count(), 1);
   });
 
   test("returns a friendly error when the model is unavailable", async () => {
-    process.env.GEMINI_API_KEY = "test-key-123";
+    process.env.GROQ_API_KEY = "test-key-123";
     delete process.env.MODEL_NAME;
     const mock = installFetch([
-      geminiError(
+      groqError(
         404,
-        "This model models/gemini-flash-latest is not available to new users."
+        "The model llama-3.3-70b-versatile does not exist or you do not have access to it."
       ),
     ]);
     const res = await invoke(postEvent({ transcript: FDP_TRANSCRIPT }));
     assert.equal(res.statusCode, 500);
     const data = res.body;
-    assert.match(data.error, /gemini-flash-latest/);
+    assert.match(data.error, /llama-3.3-70b-versatile/);
     assert.match(data.error, /MODEL_NAME/);
     assert.equal(mock.count(), 1);
   });
 
-  test("returns a friendly error on a Gemini 5xx failure", async () => {
-    process.env.GEMINI_API_KEY = "test-key-123";
-    const mock = installFetch([geminiError(500, "internal error")]);
+  test("returns a friendly error on a Groq 5xx failure", async () => {
+    process.env.GROQ_API_KEY = "test-key-123";
+    const mock = installFetch([groqError(500, "internal error")]);
     const res = await invoke(postEvent({ transcript: FDP_TRANSCRIPT }));
     assert.equal(res.statusCode, 502);
     const data = res.body;
@@ -369,13 +414,13 @@ describe("generate-mcq.js", () => {
     assert.equal(mock.count(), 1);
   });
 
-  test("handles an empty candidates response gracefully", async () => {
-    process.env.GEMINI_API_KEY = "test-key-123";
+  test("handles an empty choices response gracefully", async () => {
+    process.env.GROQ_API_KEY = "test-key-123";
     globalThis.fetch = async () => ({
       ok: true,
       status: 200,
       async json() {
-        return { candidates: [] };
+        return { choices: [] };
       },
       async text() {
         return "";
@@ -383,11 +428,11 @@ describe("generate-mcq.js", () => {
     });
     const res = await invoke(postEvent({ transcript: FDP_TRANSCRIPT }));
     assert.equal(res.statusCode, 502);
-    assert.match(res.body.error, /Gemini returned an empty response/);
+    assert.match(res.body.error, /Groq returned an empty response/);
   });
 
-  test("times out a hung Gemini request and returns 502", async () => {
-    process.env.GEMINI_API_KEY = "test-key-123";
+  test("times out a hung Groq request and returns 502", async () => {
+    process.env.GROQ_API_KEY = "test-key-123";
     process.env.REQUEST_TIMEOUT_MS = "100";
     installFetch([
       (url, options) =>
@@ -405,7 +450,7 @@ describe("generate-mcq.js", () => {
   });
 
   test("passes an AbortController signal to fetch", async () => {
-    process.env.GEMINI_API_KEY = "test-key-123";
+    process.env.GROQ_API_KEY = "test-key-123";
     const { mock, res } = runTenQuestionSuccess("any transcript");
     await res;
     assert.ok(
@@ -415,7 +460,7 @@ describe("generate-mcq.js", () => {
   });
 
   test("rejects an empty transcript (400, no API call)", async () => {
-    process.env.GEMINI_API_KEY = "test-key-123";
+    process.env.GROQ_API_KEY = "test-key-123";
     for (const body of [
       {},
       { transcript: "" },
@@ -423,29 +468,29 @@ describe("generate-mcq.js", () => {
       "this is not json",
       null,
     ]) {
-      const mock = installFetch([geminiOk(TEN_JSON)]);
+      const mock = installFetch([groqOk(TEN_JSON)]);
       const res = await invoke(postEvent(body));
       assert.equal(res.statusCode, 400, JSON.stringify(body));
       assert.match(res.body.error, /transcript is required/);
-      assert.equal(mock.count(), 0, "must not call Gemini without a transcript");
+      assert.equal(mock.count(), 0, "must not call Groq without a transcript");
     }
   });
 
   test("handles a short transcript", async () => {
-    process.env.GEMINI_API_KEY = "test-key-123";
+    process.env.GROQ_API_KEY = "test-key-123";
     const { mock, res } = runTenQuestionSuccess(
       "Heart attack symptoms include chest pain and shortness of breath."
     );
     const result = await res;
     assert.equal(result.statusCode, 200);
     assert.equal(result.body.questions.length, 10);
-    assert.ok(mock.last().body.contents[0].parts[0].text.includes("chest pain"));
+    assert.ok(mock.last().body.messages[1].content.includes("chest pain"));
   });
 
   test("handles a short transcript where the model under-produces", async () => {
-    process.env.GEMINI_API_KEY = "test-key-123";
+    process.env.GROQ_API_KEY = "test-key-123";
     const few = JSON.stringify(TEN_QUESTIONS.slice(0, 3));
-    const mock = installFetch([geminiOk(few), geminiOk(few)]);
+    const mock = installFetch([groqOk(few), groqOk(few)]);
     const res = await invoke(postEvent({ transcript: "Only one fact here." }));
     assert.equal(res.statusCode, 502);
     const data = res.body;
@@ -455,12 +500,12 @@ describe("generate-mcq.js", () => {
   });
 
   test("truncates a transcript longer than MAX_TRANSCRIPT_CHARS", async () => {
-    process.env.GEMINI_API_KEY = "test-key-123";
+    process.env.GROQ_API_KEY = "test-key-123";
     const longTranscript = "a".repeat(130000);
     const { mock, res } = runTenQuestionSuccess(longTranscript);
     const result = await res;
     assert.equal(result.statusCode, 200);
-    const sent = mock.last().body.contents[0].parts[0].text;
+    const sent = mock.last().body.messages[1].content;
     const prefix = "Transcript:\n\n";
     const idx = sent.indexOf(prefix);
     assert.ok(idx !== -1);
@@ -468,21 +513,21 @@ describe("generate-mcq.js", () => {
   });
 
   test("works end-to-end with a realistic FDP transcript", async () => {
-    process.env.GEMINI_API_KEY = "test-key-123";
-    const mock = installFetch([geminiOk(TEN_JSON)]);
+    process.env.GROQ_API_KEY = "test-key-123";
+    const mock = installFetch([groqOk(TEN_JSON)]);
     const res = await invoke(postEvent({ transcript: FDP_TRANSCRIPT }));
     const result = await res;
     assert.equal(result.statusCode, 200);
     const data = result.body;
     assert.equal(data.count, 10);
     assert.equal(data.questions.length, 10);
-    const sent = mock.last().body.contents[0].parts[0].text;
+    const sent = mock.last().body.messages[1].content;
     assert.ok(sent.includes("Dr. Rao"));
     assert.ok(sent.includes("outcome-based education"));
   });
 
   test("keeps the frontend response format unchanged", async () => {
-    process.env.GEMINI_API_KEY = "test-key-123";
+    process.env.GROQ_API_KEY = "test-key-123";
     const { res } = runTenQuestionSuccess(FDP_TRANSCRIPT);
     const data = (await res).body;
     assert.deepEqual(Object.keys(data).sort(), ["count", "questions"]);
@@ -530,14 +575,14 @@ describe("generate-mcq.js time budget", () => {
   });
 
   test("clamps the per-attempt timeout to the remaining window", () => {
-    assert.equal(attemptBudget(60_000, 0), geminiWindowMs());
+    assert.equal(attemptBudget(60_000, 0), groqWindowMs());
     assert.equal(
       attemptBudget(60_000, 23_000),
-      geminiWindowMs() - 23_000
+      groqWindowMs() - 23_000
     );
-    assert.equal(attemptBudget(60_000, geminiWindowMs()), 0);
+    assert.equal(attemptBudget(60_000, groqWindowMs()), 0);
     assert.equal(attemptBudget(60_000, 99_000), 0);
-    assert.equal(attemptBudget(60_000, -1_000), geminiWindowMs());
+    assert.equal(attemptBudget(60_000, -1_000), groqWindowMs());
   });
 
   test("honors a lower REQUEST_TIMEOUT_MS override as-is", () => {
@@ -545,15 +590,13 @@ describe("generate-mcq.js time budget", () => {
   });
 
   test("first attempt plus retry can never exceed the 26s window", () => {
-    // Worst case: the first attempt consumes its entire budget before the
-    // retry is budgeted, so first + retry must still fit in the window.
-    for (const firstBudget of [0, 5_000, 15_000, 20_000, geminiWindowMs()]) {
+    for (const firstBudget of [0, 5_000, 15_000, 20_000, groqWindowMs()]) {
       const consumed = firstBudget;
       const retry = canRetry(consumed)
         ? attemptBudget(DEFAULT_REQUEST_TIMEOUT_MS, consumed)
         : 0;
       assert.ok(
-        firstBudget + retry <= geminiWindowMs(),
+        firstBudget + retry <= groqWindowMs(),
         `first ${firstBudget} + retry ${retry} exceeds window at consumed ${consumed}`
       );
     }
@@ -561,13 +604,13 @@ describe("generate-mcq.js time budget", () => {
 
   test("canRetry is false once the window is nearly exhausted", () => {
     assert.equal(canRetry(0), true);
-    assert.equal(canRetry(geminiWindowMs() - RETRY_MIN_BUDGET_MS + 1), false);
-    assert.equal(canRetry(geminiWindowMs()), false);
+    assert.equal(canRetry(groqWindowMs() - RETRY_MIN_BUDGET_MS + 1), false);
+    assert.equal(canRetry(groqWindowMs()), false);
     assert.equal(canRetry(FUNCTION_MAX_DURATION_MS), false);
   });
 
-  test("REQUEST_TIMEOUT_MS=100 still times out a hung Gemini request", async () => {
-    process.env.GEMINI_API_KEY = "test-key-123";
+  test("REQUEST_TIMEOUT_MS=100 still times out a hung Groq request", async () => {
+    process.env.GROQ_API_KEY = "test-key-123";
     process.env.REQUEST_TIMEOUT_MS = "100";
     installFetch([
       (url, options) =>

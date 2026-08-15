@@ -59,7 +59,7 @@ function ChartEmpty({ message }) {
   return <p className="ana-chart-empty">{message}</p>;
 }
 
-export default function AnalyticsPage({ sessionId, onBack }) {
+export default function AnalyticsPage({ sessionId, sessions, onSelectSession, onBack }) {
   const { showToast } = useToast();
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -141,6 +141,17 @@ export default function AnalyticsPage({ sessionId, onBack }) {
     .filter((value) => value != null);
   const maxResponse = Math.max(1, ...responseTimes);
 
+  const statusLabel = {
+    completed: "Completed",
+    live: "Live",
+    published: "Published",
+    draft: "Draft",
+  };
+
+  const selectableSessions = (sessions || []).filter(
+    (s) => s.status !== "draft"
+  );
+
   const base =
     (session.sessionName || "session")
       .toLowerCase()
@@ -189,10 +200,9 @@ export default function AnalyticsPage({ sessionId, onBack }) {
     {
       key: "pdf",
       label: "PDF Report",
-      disabled: true,
       run: () => {
         try {
-          sessionPdfReport();
+          sessionPdfReport(data);
         } catch (err) {
           showToast(err.message, "info");
         }
@@ -217,6 +227,26 @@ export default function AnalyticsPage({ sessionId, onBack }) {
           ← Back to History
         </button>
       </header>
+
+      <section className="adb-card">
+        <label className="field analytics-session-select">
+          <span className="field-label">View data for</span>
+          <select
+            value={sessionId || ""}
+            onChange={(event) => onSelectSession(event.target.value)}
+          >
+            {selectableSessions.length === 0 && (
+              <option value="">No published sessions yet</option>
+            )}
+            {selectableSessions.map((s) => (
+              <option key={s.id} value={s.id}>
+                {s.sessionName} · {formatDate(s.sessionDate)} ·{" "}
+                {statusLabel[s.status] || s.status}
+              </option>
+            ))}
+          </select>
+        </label>
+      </section>
 
       <section className="adb-card">
         <div className="adb-section-head">

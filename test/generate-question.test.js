@@ -6,7 +6,7 @@ const originalFetch = globalThis.fetch;
 
 afterEach(() => {
   globalThis.fetch = originalFetch;
-  delete process.env.GEMINI_API_KEY;
+  delete process.env.GROQ_API_KEY;
   delete process.env.MODEL_NAME;
   delete process.env.REQUEST_TIMEOUT_MS;
 });
@@ -37,15 +37,13 @@ const QUESTION = {
 };
 const QUESTION_JSON = JSON.stringify(QUESTION);
 
-function geminiOk(partsText) {
+function groqOk(contentText) {
   return {
     ok: true,
     status: 200,
     async json() {
       return {
-        candidates: [
-          { content: { role: "model", parts: [{ text: partsText }] } },
-        ],
+        choices: [{ message: { role: "assistant", content: contentText } }],
       };
     },
     async text() {
@@ -54,7 +52,7 @@ function geminiOk(partsText) {
   };
 }
 
-function geminiError(status, detail) {
+function groqError(status, detail) {
   return {
     ok: false,
     status,
@@ -85,35 +83,37 @@ function installFetch(responses) {
 }
 
 describe("generate-question.js", () => {
-  test("uses gemini-flash-latest model by default", async () => {
-    process.env.GEMINI_API_KEY = "test-key-123";
-    const mock = installFetch([geminiOk(QUESTION_JSON)]);
+  test("uses llama-3.3-70b-versatile model by default", async () => {
+    process.env.GROQ_API_KEY = "test-key-123";
+    delete process.env.MODEL_NAME;
+    const mock = installFetch([groqOk(QUESTION_JSON)]);
     const res = await invoke(postEvent({ topic: "cardiac arrest" }));
     assert.equal(res.statusCode, 200);
-    assert.match(mock.last().url, /\/models\/gemini-flash-latest:generateContent/);
+    assert.equal(mock.last().body.model, "llama-3.3-70b-versatile");
+    assert.equal(mock.last().url, "https://api.groq.com/openai/v1/chat/completions");
   });
 
   test("honors MODEL_NAME override", async () => {
-    process.env.GEMINI_API_KEY = "test-key-123";
-    process.env.MODEL_NAME = "gemini-2.5-pro";
-    const mock = installFetch([geminiOk(QUESTION_JSON)]);
+    process.env.GROQ_API_KEY = "test-key-123";
+    process.env.MODEL_NAME = "openai/gpt-oss-120b";
+    const mock = installFetch([groqOk(QUESTION_JSON)]);
     await invoke(postEvent({ topic: "cardiac arrest" }));
-    assert.match(mock.last().url, /\/models\/gemini-2.5-pro:generateContent/);
+    assert.equal(mock.last().body.model, "openai/gpt-oss-120b");
   });
 
-  test("rejects when GEMINI_API_KEY is missing", async () => {
-    const mock = installFetch([geminiOk(QUESTION_JSON)]);
-    delete process.env.GEMINI_API_KEY;
+  test("rejects when GROQ_API_KEY is missing", async () => {
+    const mock = installFetch([groqOk(QUESTION_JSON)]);
+    delete process.env.GROQ_API_KEY;
     const res = await invoke(postEvent({ topic: "cardiac arrest" }));
     assert.equal(res.statusCode, 500);
-    assert.match(res.body.error, /GEMINI_API_KEY/);
+    assert.match(res.body.error, /GROQ_API_KEY/);
     assert.equal(mock.count(), 0);
   });
 
   test("returns a friendly error for an invalid API key", async () => {
-    process.env.GEMINI_API_KEY = "test-key-123";
+    process.env.GROQ_API_KEY = "test-key-123";
     const mock = installFetch([
-      geminiError(400, "API key not valid. Please pass a valid API key."),
+      groqError(400, "API key not valid. Please pass a valid API key."),
     ]);
     const res = await invoke(postEvent({ topic: "cardiac arrest" }));
     assert.equal(res.statusCode, 500);
@@ -121,9 +121,9 @@ describe("generate-question.js", () => {
     assert.equal(mock.count(), 1);
   });
 
-  test("returns a friendly 503 when the Gemini rate limit is exceeded", async () => {
-    process.env.GEMINI_API_KEY = "test-key-123";
-    const mock = installFetch([geminiError(429, "rate limit exceeded")]);
+  test("returns a friendly 503 when the Groq rate limit is exceeded", async () => {
+    process.env.GROQ_API_KEY = "test-key-123";
+    const mock = installFetch([groqError(429, "rate limit exceeded")]);
     const res = await invoke(postEvent({ topic: "cardiac arrest" }));
     assert.equal(res.statusCode, 503);
     assert.match(res.body.error, /rate limit/);
@@ -131,12 +131,12 @@ describe("generate-question.js", () => {
   });
 
   test("returns a friendly error when the model is unavailable", async () => {
-    process.env.GEMINI_API_KEY = "test-key-123";
+    process.env.GROQ_API_KEY = "test-key-123";
     delete process.env.MODEL_NAME;
     const mock = installFetch([
-      geminiError(
+      groqError(
         404,
-        "This model models/gemini-flash-latest is not available to new users."
+        "The model llama-3.3-70b-versatile does not exist or you do not have access to it."
       ),
     ]);
     const res = await invoke(postEvent({ topic: "cardiac arrest" }));
@@ -146,8 +146,8 @@ describe("generate-question.js", () => {
   });
 
   test("returns success with the expected shape", async () => {
-    process.env.GEMINI_API_KEY = "test-key-123";
-    const mock = installFetch([geminiOk(QUESTION_JSON)]);
+    process.env.GROQ_API_KEY = "test-key-123";
+    const mock = installFetch([groqOk(QUESTION_JSON)]);
     const res = await invoke(postEvent({ topic: "cardiac arrest" }));
     assert.equal(res.statusCode, 200);
     assert.equal(mock.count(), 1);
@@ -162,8 +162,8 @@ describe("generate-question.js", () => {
   });
 
   test("returns 502 for malformed model output", async () => {
-    process.env.GEMINI_API_KEY = "test-key-123";
-    const mock = installFetch([geminiOk("this is not json")]);
+    process.env.GROQ_API_KEY = "test-key-123";
+    const mock = installFetch([groqOk("this is not json")]);
     const res = await invoke(postEvent({ topic: "cardiac arrest" }));
     assert.equal(res.statusCode, 502);
     assert.match(res.body.error, /could not be used/);
@@ -171,8 +171,8 @@ describe("generate-question.js", () => {
   });
 
   test("rejects an empty response", async () => {
-    process.env.GEMINI_API_KEY = "test-key-123";
-    const mock = installFetch([geminiOk("   ")]);
+    process.env.GROQ_API_KEY = "test-key-123";
+    const mock = installFetch([groqOk("   ")]);
     const res = await invoke(postEvent({ topic: "cardiac arrest" }));
     assert.equal(res.statusCode, 502);
     assert.match(res.body.error, /empty response/);

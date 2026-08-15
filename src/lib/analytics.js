@@ -392,8 +392,171 @@ export function answersCsv(questions, answers, rows) {
   return toCsv(lines);
 }
 
-export function sessionPdfReport() {
-  throw new Error("PDF export is not available yet.");
+function pdfDuration(ms) {
+  if (ms == null) return "—";
+  const seconds = Math.round(ms / 1000);
+  if (seconds < 60) return `${seconds}s`;
+  const minutes = Math.floor(seconds / 60);
+  const rest = seconds % 60;
+  return rest ? `${minutes}m ${rest}s` : `${minutes}m`;
+}
+
+function pdfDate(value) {
+  if (!value) return "—";
+  const date = new Date(`${value}T00:00:00`);
+  if (Number.isNaN(date.getTime())) return value;
+  return date.toLocaleDateString();
+}
+
+function barHtml(pct, label, value, tone = "") {
+  const width = Math.min(100, Math.max(0, Number(pct) || 0));
+  return `
+    <div class="bar-row">
+      <div class="bar-label"><span>${label}</span><span>${value}</span></div>
+      <div class="bar-track"><div class="bar-fill ${tone}" style="width:${width}%"></div></div>
+    </div>`;
+}
+
+function questionHtml(q) {
+  const wordcloud = !Number.isInteger(q.correctIndex);
+  const dist = wordcloud
+    ? (q.words || [])
+        .map(
+          (w) =>
+            `<div class="word-row"><span>${w.word}</span><span>${w.count}</span></div>`
+        )
+        .join("")
+    : q.options
+        .map((option, i) => {
+          const count = q.counts[i] || 0;
+          const pct = q.answered ? Math.round((count / q.answered) * 100) : 0;
+          return barHtml(
+            pct,
+            `${String.fromCharCode(65 + i)} — ${option}`,
+            `${count} · ${pct}%`,
+            i === q.correctIndex ? "correct" : ""
+          );
+        })
+        .join("");
+  const correctLine = wordcloud
+    ? ""
+    : `<p class="correct-line">Correct answer: <strong>${
+        String.fromCharCode(65 + q.correctIndex)
+      } — ${q.options[q.correctIndex] || "—"}</strong></p>`;
+  return `
+    <div class="question">
+      <h3>Question ${q.index + 1}${wordcloud ? " (Word cloud)" : ""}</h3>
+      <p class="qtext">${q.question}</p>
+      ${correctLine}
+      <p class="metrics">
+        ${wordcloud ? "" : `<span>Correct ${q.correctPct}%</span><span>Incorrect ${q.incorrectPct}%</span>`}
+        <span>${q.answered} response${q.answered === 1 ? "" : "s"}</span>
+        <span>Avg time ${pdfDuration(q.avgResponseMs)}</span>
+      </p>
+      <div class="dist">${dist}</div>
+    </div>`;
+}
+
+export function sessionPdfReport(data) {
+  if (!data || !data.session) throw new Error("No analytics to export.");
+  const { session, stats, leaderboard, questionStats, durationMs } = data;
+  const rows = data.rows || [];
+  const wordcloudQuestions = questionStats.filter(
+    (q) => !Number.isInteger(q.correctIndex)
+  ).length;
+
+  const statsHtml = `
+    <div class="stat-grid">
+      <div class="stat"><strong>${stats.joined}</strong><span>Participants</span></div>
+      <div class="stat"><strong>${stats.completionRate}%</strong><span>Completion</span></div>
+      <div class="stat"><strong>${stats.avgScore}%</strong><span>Average score</span></div>
+      <div class="stat"><strong>${stats.highestScore}%</strong><span>Highest score</span></div>
+      <div class="stat"><strong>${stats.lowestScore}%</strong><span>Lowest score</span></div>
+      <div class="stat"><strong>${pdfDuration(durationMs)}</strong><span>Duration</span></div>
+    </div>`;
+
+  const leaderboardHtml =
+    leaderboard.length === 0
+      ? `<p class="empty">No participants answered.</p>`
+      : `<table>
+          <thead>
+            <tr><th>Rank</th><th>Name</th><th>Institution</th><th>Score %</th><th>Correct</th></tr>
+          </thead>
+          <tbody>
+            ${leaderboard
+              .map(
+                (row) =>
+                  `<tr><td>${row.rank}</td><td>${row.name}</td><td>${
+                    row.institution || "—"
+                  }</td><td>${row.scorePct}%</td><td>${row.correct}/${
+                    row.total
+                  }</td></tr>`
+              )
+              .join("")}
+          </tbody>
+        </table>`;
+
+  const questionsHtml =
+    questionStats.length === 0
+      ? `<p class="empty">No questions recorded.</p>`
+      : questionStats.map(questionHtml).join("");
+
+  const html = `<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>${session.sessionName} — Report</title>
+<style>
+  * { box-sizing: border-box; }
+  body { font-family: Arial, Helvetica, sans-serif; color: #111111; margin: 0; padding: 2rem; }
+  .head { border-bottom: 3px solid #dc2626; padding-bottom: 1rem; margin-bottom: 1.5rem; }
+  .head h1 { margin: 0 0 0.25rem; font-size: 1.4rem; }
+  .head .sub { margin: 0; color: #64748b; font-size: 0.85rem; }
+  .stat-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 0.75rem; margin-bottom: 1.5rem; }
+  .stat { border: 1px solid #e2e8f0; border-radius: 8px; padding: 0.75rem; }
+  .stat strong { display: block; font-size: 1.2rem; }
+  .stat span { font-size: 0.8rem; color: #64748b; }
+  h2 { font-size: 1.05rem; margin: 1.5rem 0 0.5rem; color: #111111; }
+  table { width: 100%; border-collapse: collapse; font-size: 0.85rem; }
+  th, td { border: 1px solid #e2e8f0; padding: 0.45rem 0.6rem; text-align: left; }
+  th { background: #f1f5f9; }
+  .question { border: 1px solid #e2e8f0; border-radius: 8px; padding: 1rem; margin-bottom: 1rem; page-break-inside: avoid; }
+  .question h3 { margin: 0 0 0.25rem; font-size: 0.95rem; color: #dc2626; }
+  .qtext { margin: 0 0 0.5rem; font-weight: 600; }
+  .correct-line { margin: 0 0 0.5rem; font-size: 0.85rem; }
+  .metrics { display: flex; flex-wrap: wrap; gap: 1rem; font-size: 0.8rem; color: #475569; margin: 0 0 0.75rem; }
+  .bar-row { margin-bottom: 0.5rem; }
+  .bar-label { display: flex; justify-content: space-between; font-size: 0.8rem; margin-bottom: 0.2rem; }
+  .bar-track { background: #f1f5f9; border-radius: 4px; height: 12px; overflow: hidden; }
+  .bar-fill { height: 100%; background: #dc2626; }
+  .bar-fill.correct { background: #10b981; }
+  .word-row { display: flex; justify-content: space-between; border-bottom: 1px solid #e2e8f0; padding: 0.35rem 0; font-size: 0.85rem; }
+  .empty { color: #64748b; font-size: 0.85rem; }
+  .footer { margin-top: 2rem; font-size: 0.75rem; color: #94a3b8; text-align: center; }
+  @media print { body { padding: 0.5rem; } }
+</style>
+</head>
+<body>
+  <div class="head">
+    <h1>${session.sessionName}</h1>
+    <p class="sub">${pdfDate(session.sessionDate)} · Room ${session.roomCode || "—"} · Presenter ${session.presenter || "—"}${wordcloudQuestions ? ` · ${wordcloudQuestions} word cloud question(s)` : ""}</p>
+  </div>
+  <h2>Overview</h2>
+  ${statsHtml}
+  <h2>Leaderboard</h2>
+  ${leaderboardHtml}
+  <h2>Question Analysis</h2>
+  ${questionsHtml}
+  <p class="footer">Generated by FlyPollo · ${new Date().toLocaleString()}</p>
+  <script>window.print()<\/script>
+</body>
+</html>`;
+
+  const win = window.open("", "_blank", "width=900,height=1200");
+  if (!win) throw new Error("Pop-up blocked. Allow pop-ups to export the PDF report.");
+  win.document.open();
+  win.document.write(html);
+  win.document.close();
 }
 
 export function sessionAnalyticsJson(data) {

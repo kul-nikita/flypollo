@@ -149,19 +149,69 @@ export function csvFilename(session) {
   return `flypollo-results-${base || session.id}.csv`;
 }
 
-export function sessionsToCsv(sessions) {
+export function sessionsToCsv(sessions, analyticsMap = null) {
+  const base = [
+    "Session",
+    "Date",
+    "Status",
+    "Room Code",
+    "Questions",
+    "Participants",
+    "Average Score %",
+    "Published At",
+    "Share Link",
+  ];
+  const analyticsCols = [
+    "Completion %",
+    "Highest %",
+    "Lowest %",
+    "Median %",
+    "Avg Response (ms)",
+    "Duration",
+  ];
   const lines = [
-    ["Session", "Date", "Status", "Room Code", "Questions", "Participants", "Average Score %", "Published At", "Share Link"],
-    ...sessions.map((s) => [
-      s.sessionName,
-      s.sessionDate,
-      s.status,
-      s.roomCode,
-      s.questionCount,
-      s.participantCount,
-      s.avgScore,
-      s.publishedAt,
-      s.shareUrl,
+    [...base, ...(analyticsMap ? analyticsCols : [])],
+    ...sessions.map((s) => {
+      const stats = analyticsMap?.get(s.id) || null;
+      return [
+        s.sessionName,
+        s.sessionDate,
+        s.status,
+        s.roomCode,
+        s.questionCount,
+        s.participantCount,
+        s.avgScore,
+        s.publishedAt,
+        s.shareUrl,
+        ...(analyticsMap
+          ? [
+              stats ? stats.completionRate : "",
+              stats ? stats.highestScore : "",
+              stats ? stats.lowestScore : "",
+              stats ? stats.medianScore : "",
+              stats ? stats.avgResponseMs : "",
+              stats ? stats.durationMs : "",
+            ]
+          : []),
+      ];
+    }),
+  ];
+  return lines.map((line) => line.map(csvEscape).join(",")).join("\n");
+}
+
+export function participantStatsCsv(rows) {
+  const lines = [
+    ["Name", "Email", "Institution", "Designation", "Sessions Joined", "Answers", "Correct", "Average Accuracy %", "Last Active"],
+    ...rows.map((row) => [
+      row.name,
+      row.email,
+      row.institution,
+      row.designation,
+      row.sessionsJoined,
+      row.answered,
+      row.correct,
+      row.accuracy === null ? "" : row.accuracy,
+      row.lastActive ? new Date(row.lastActive).toISOString() : "",
     ]),
   ];
   return lines.map((line) => line.map(csvEscape).join(",")).join("\n");

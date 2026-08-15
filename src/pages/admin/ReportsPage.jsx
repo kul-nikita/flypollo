@@ -1,14 +1,23 @@
 import { useRef, useState } from "react";
+import { configured, db } from "../../firebase";
 import { sessionsToCsv } from "../../lib/report";
 import { formatDate } from "../../lib/session";
+import {
+  downloadTextFile,
+  loadSessionAnalytics,
+  sessionPdfReport,
+} from "../../lib/analytics";
+import { useToast } from "../../components/Toasts";
 
 export default function ReportsPage({ store }) {
   const { sessions, loading, downloadSessionCsv } = store;
   const [from, setFrom] = useState("");
   const [to, setTo] = useState("");
   const [generated, setGenerated] = useState(false);
+  const [mergeAnalytics, setMergeAnalytics] = useState(false);
   const [error, setError] = useState("");
   const downloadLockRef = useRef(0);
+  const { showToast } = useToast();
 
   const filtered = sessions.filter((s) => {
     const date = s.sessionDate || "";
@@ -31,18 +40,45 @@ export default function ReportsPage({ store }) {
     const now = Date.now();
     if (now - downloadLockRef.current < 400) return;
     downloadLockRef.current = now;
-    const csv = sessionsToCsv(filtered);
-    const blob = new Blob([`\uFEFF${csv}`], {
-      type: "text/csv;charset=utf-8;",
-    });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement("a");
-    link.href = url;
-    link.download = "flypollo-results-summary.csv";
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    URL.revokeObjectURL(url);
+    if (!mergeAnalytics || !configured || !db) {
+      const csv = sessionsToCsv(filtered);
+      downloadTextFile(
+        "flypollo-results-summary.csv",
+        csv
+      );
+      return;
+    }
+    Promise.all(
+      filtered.map((s) =>
+        loadSessionAnalytics(db, s.id)
+          .then((data) => [s.id, data.stats])
+          .catch(() => [s.id, null])
+      )
+    )
+      .then((entries) => {
+        const csv = sessionsToCsv(filtered, new Map(entries));
+        downloadTextFile("flypollo-results-summary.csv", csv);
+      })
+      .catch((err) => {
+        setError(err.message);
+        showToast(err.message, "error");
+      });
+  }
+
+  function downloadAnalyticsReport(session) {
+    if (!configured || !db) return;
+    loadSessionAnalytics(db, session.id)
+      .then((data) => {
+        try {
+          sessionPdfReport(data);
+        } catch (err) {
+          showToast(err.message, "info");
+        }
+      })
+      .catch((err) => {
+        setError(err.message);
+        showToast(err.message, "error");
+      });
   }
 
   if (loading) {
@@ -86,6 +122,14 @@ export default function ReportsPage({ store }) {
             Generate
           </button>
         </form>
+        <label className="field checkbox-field">
+          <input
+            type="checkbox"
+            checked={mergeAnalytics}
+            onChange={(event) => setMergeAnalytics(event.target.checked)}
+          />
+          <span>Merge analytics (completion, highest/lowest, response time) into the summary CSV</span>
+        </label>
         {error && (
           <p className="error" role="alert">
             {error}
@@ -156,6 +200,13 @@ export default function ReportsPage({ store }) {
                             onClick={() => downloadSessionCsv(s)}
                           >
                             Results CSV
+                          </button>
+                          <button
+                            type="button"
+                            className="btn btn-secondary btn-sm"
+                            onClick={() => downloadAnalyticsReport(s)}
+                          >
+                            Analytics report
                           </button>
                         </td>
                       </tr>

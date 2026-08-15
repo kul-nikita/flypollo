@@ -1,4 +1,5 @@
-import { defaultSessionName } from "../../lib/session";
+import { useEffect } from "react";
+import { defaultSessionName, todayLocal } from "../../lib/session";
 import {
   validationError,
   QUESTION_TYPES,
@@ -50,6 +51,13 @@ export default function CreateSessionPage({ store, onNavigate }) {
     if (label === "Create" && (step === "upload" || step === "review")) return "done";
     return "";
   };
+
+  useEffect(() => {
+    if (step === "create" && !session && !createForm.sessionName) {
+      setCreateForm((form) => ({ ...form, sessionDate: todayLocal() }));
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [step]);
 
   if (normalizedStatus !== "draft") {
     return (

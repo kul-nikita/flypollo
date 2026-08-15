@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { configured, db } from "../../firebase";
-import { listParticipantStats } from "../../lib/report";
+import { listParticipantStats, participantStatsCsv } from "../../lib/report";
+import { downloadTextFile } from "../../lib/analytics";
 import { useToast } from "../../components/Toasts";
 
 export default function ParticipantsPage() {
@@ -36,6 +37,13 @@ export default function ParticipantsPage() {
     );
   });
 
+  function exportCsv() {
+    downloadTextFile(
+      `flypollo-participants-${new Date().toISOString().slice(0, 10)}.csv`,
+      participantStatsCsv(filtered)
+    );
+  }
+
   return (
     <div className="adb-page">
       <header className="adb-page-head">
@@ -56,6 +64,14 @@ export default function ParticipantsPage() {
             aria-label="Search participants"
           />
           <span className="adb-count">{filtered.length} shown</span>
+          <button
+            type="button"
+            className="btn btn-secondary"
+            onClick={exportCsv}
+            disabled={filtered.length === 0}
+          >
+            Download CSV
+          </button>
         </div>
 
         {error && (

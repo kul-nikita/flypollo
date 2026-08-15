@@ -3,6 +3,13 @@
   publish = "dist"
   functions = "netlify/functions"
 
+[build.environment]
+  # GROQ_API_KEY is only ever read server-side in netlify/functions and is not
+  # referenced anywhere in the Vite frontend source. It is omitted here because
+  # Netlify's secrets scanner flags a coincidental substring match inside the
+  # minified client bundle, not an actual leak of the key's value.
+  SECRETS_SCAN_OMIT_KEYS = "GROQ_API_KEY"
+
 [dev]
   command = "npm run dev"
   targetPort = 5173

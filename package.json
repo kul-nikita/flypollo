@@ -1,9 +1,9 @@
 {
-  "name": "flypollo",
+  "name": "flygamify",
   "private": true,
   "version": "0.1.0",
   "type": "module",
-  "description": "Flypollo — live quiz web app for faculty development programs and academic training",
+  "description": "FlyGamify — live quiz web app for faculty development programs and academic training",
   "scripts": {
     "dev": "vite",
     "build": "vite build",

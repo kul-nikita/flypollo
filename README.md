@@ -1,4 +1,4 @@
-# FlyPollo
+# FlyGamify
 
 Interactive live learning — run real-time questions with any audience and see
 the results the moment they answer.
@@ -192,7 +192,7 @@ Current Session card appears. An invalid code shows "Room code not found." and
 does not proceed.
 
 **Room links:** every published session has a share link of the form
-`https://flypollo.netlify.app?room=FP-482913` (also encoded in its QR code).
+`https://flygamify.netlify.app?room=FP-482913` (also encoded in its QR code).
 Opening that link prefills the room code in Quick Join; if the room is valid the
 participant joins automatically, otherwise the box stays editable so the code
 can be corrected.
@@ -200,8 +200,8 @@ can be corrected.
 The Current Session card shows the connection state, the joined session name
 and room code, and a "Waiting for the presenter to start…" message.
 
-**Sign out** clears both localStorage keys (`flypollo.participant` and
-`flypollo.joinedSession`) and returns to the landing page. Joining a new room
+**Sign out** clears both localStorage keys (`flygamify.participant` and
+`flygamify.joinedSession`) and returns to the landing page. Joining a new room
 code replaces the previously stored joined session; participant profiles are
 keyed by the base64url-encoded email in `participants/{encodedEmail}`, so no
 duplicate participant records are ever created. No passwords are used.
@@ -227,7 +227,7 @@ sessions/{sessionId}            # two kinds of documents
   presenter         admin email    # presenter identity, set on publish
   transcriptFilename string        # source transcript, set on publish
   roomCode          "FP-482913"    # unique per publish
-  shareUrl          URL            # https://flypollo.netlify.app?room=FP-482913
+  shareUrl          URL            # https://flygamify.netlify.app?room=FP-482913
   qrUrl             data URL       # QR of shareUrl, generated on publish
   questionCount     number
   participantCount  number
@@ -304,7 +304,7 @@ existing collections are left untouched.
 
 ## Presenter Console
 
-The console is a multi-page dashboard with a fixed sidebar (FlyPollo logo, then
+The console is a multi-page dashboard with a fixed sidebar (FlyGamify logo, then
 **Dashboard**, **Create Session**, **Live Session**, **Session History**,
 **Reports**, **Participants**; the signed-in admin email and **Sign out** live
 at the bottom). On small screens the sidebar collapses behind a hamburger.
@@ -331,7 +331,7 @@ at the bottom). On small screens the sidebar collapses behind a hamburger.
 The **Reports** page lets a presenter filter sessions by date range and
 download results. Per-session CSVs export `Name, Email, Institution,
 Designation, Correct, Answered, Total, Score %` for the participants who
-answered, saved as `flypollo-results-{session-name}.csv` (UTF-8 with BOM for
+answered, saved as `flygamify-results-{session-name}.csv` (UTF-8 with BOM for
 spreadsheet compatibility). The summary CSV exports one row per session with
 session name, date, status, room code, question count, participant count,
 average score and share link.

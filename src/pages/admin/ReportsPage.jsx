@@ -43,7 +43,7 @@ export default function ReportsPage({ store }) {
     if (!mergeAnalytics || !configured || !db) {
       const csv = sessionsToCsv(filtered);
       downloadTextFile(
-        "flypollo-results-summary.csv",
+        "flygamify-results-summary.csv",
         csv
       );
       return;
@@ -57,7 +57,7 @@ export default function ReportsPage({ store }) {
     )
       .then((entries) => {
         const csv = sessionsToCsv(filtered, new Map(entries));
-        downloadTextFile("flypollo-results-summary.csv", csv);
+        downloadTextFile("flygamify-results-summary.csv", csv);
       })
       .catch((err) => {
         setError(err.message);

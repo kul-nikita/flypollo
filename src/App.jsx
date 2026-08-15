@@ -68,7 +68,7 @@ export default function App() {
               type="button"
               className={`brand-btn${view.name === "landing" ? " brand-btn-static" : ""}`}
               onClick={view.name === "landing" ? undefined : goHome}
-              aria-label="FlyPollo home"
+              aria-label="FlyGamify home"
             >
               <Logo withText />
             </button>

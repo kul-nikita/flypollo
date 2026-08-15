@@ -12,7 +12,7 @@ afterEach(() => {
 });
 
 function postEvent(body) {
-  return new Request("https://flypollo.netlify.app/.netlify/functions/generate-question", {
+  return new Request("https://flygamify.netlify.app/.netlify/functions/generate-question", {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: typeof body === "string" ? body : JSON.stringify(body),
@@ -181,7 +181,7 @@ describe("generate-question.js", () => {
 
   test("responds to CORS preflight (OPTIONS)", async () => {
     const res = await invoke(
-      new Request("https://flypollo.netlify.app/.netlify/functions/generate-question", {
+      new Request("https://flygamify.netlify.app/.netlify/functions/generate-question", {
         method: "OPTIONS",
       })
     );
@@ -191,7 +191,7 @@ describe("generate-question.js", () => {
 
   test("rejects non-POST methods with 405", async () => {
     const res = await invoke(
-      new Request("https://flypollo.netlify.app/.netlify/functions/generate-question", {
+      new Request("https://flygamify.netlify.app/.netlify/functions/generate-question", {
         method: "GET",
       })
     );

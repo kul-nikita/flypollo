@@ -146,7 +146,7 @@ export function csvFilename(session) {
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/^-+|-+$/g, "")
     .slice(0, 40);
-  return `flypollo-results-${base || session.id}.csv`;
+  return `flygamify-results-${base || session.id}.csv`;
 }
 
 export function sessionsToCsv(sessions, analyticsMap = null) {

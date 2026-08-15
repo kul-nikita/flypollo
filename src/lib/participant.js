@@ -2,12 +2,15 @@ import { collection, doc, getDoc, getDocs, query, setDoc, where } from "firebase
 import { db } from "../firebase";
 import { normalizeStatus } from "./session";
 
-const STORAGE_KEY = "flypollo.participant";
-const JOINED_SESSION_KEY = "flypollo.joinedSession";
-const ADMIN_EMAIL_KEY = "flypollo.adminEmail";
+const STORAGE_KEY = "flygamify.participant";
+const JOINED_SESSION_KEY = "flygamify.joinedSession";
+const ADMIN_EMAIL_KEY = "flygamify.adminEmail";
+const LEGACY_STORAGE_KEY = "flypollo.participant";
+const LEGACY_JOINED_SESSION_KEY = "flypollo.joinedSession";
+const LEGACY_ADMIN_EMAIL_KEY = "flypollo.adminEmail";
 export function loadSavedProfile() {
   try {
-    const raw = localStorage.getItem(STORAGE_KEY);
+    const raw = localStorage.getItem(STORAGE_KEY) || localStorage.getItem(LEGACY_STORAGE_KEY);
     if (!raw) return null;
     const saved = JSON.parse(raw);
     if (!saved.savedAt || !saved.participantId || !saved.email) return null;
@@ -26,6 +29,7 @@ export function saveProfile(profile) {
 
 export function clearSavedProfile() {
   localStorage.removeItem(STORAGE_KEY);
+  localStorage.removeItem(LEGACY_STORAGE_KEY);
 }
 
 export function saveAdminEmail(email) {
@@ -34,7 +38,7 @@ export function saveAdminEmail(email) {
 
 export function loadAdminEmail() {
   try {
-    const value = localStorage.getItem(ADMIN_EMAIL_KEY);
+    const value = localStorage.getItem(ADMIN_EMAIL_KEY) || localStorage.getItem(LEGACY_ADMIN_EMAIL_KEY);
     return value ? String(value).trim().toLowerCase() : "";
   } catch {
     return "";
@@ -43,11 +47,12 @@ export function loadAdminEmail() {
 
 export function clearAdminEmail() {
   localStorage.removeItem(ADMIN_EMAIL_KEY);
+  localStorage.removeItem(LEGACY_ADMIN_EMAIL_KEY);
 }
 
 export function loadJoinedSession() {
   try {
-    const raw = localStorage.getItem(JOINED_SESSION_KEY);
+    const raw = localStorage.getItem(JOINED_SESSION_KEY) || localStorage.getItem(LEGACY_JOINED_SESSION_KEY);
     if (!raw) return null;
     const saved = JSON.parse(raw);
     if (!saved.sessionId || !saved.roomCode || !saved.sessionName) return null;
@@ -71,6 +76,7 @@ export function saveJoinedSession(session) {
 
 export function clearJoinedSession() {
   localStorage.removeItem(JOINED_SESSION_KEY);
+  localStorage.removeItem(LEGACY_JOINED_SESSION_KEY);
 }
 
 export function clearParticipantData() {

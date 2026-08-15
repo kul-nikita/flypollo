@@ -9,28 +9,28 @@ function WordCloudList({ entries }) {
   const counts = {};
   for (const entry of Object.values(entries || {})) {
     if (!entry || typeof entry.text !== "string") continue;
-    const word = entry.text.trim();
-    if (!word) continue;
-    counts[word] = (counts[word] || 0) + 1;
+    const label = entry.text.trim().replace(/\s+/g, " ");
+    if (!label) continue;
+    const key = label.toLocaleLowerCase();
+    if (!counts[key]) counts[key] = { label, count: 0 };
+    counts[key].count += 1;
   }
-  const words = Object.entries(counts).sort((a, b) => b[1] - a[1]);
-  const largest = words[0]?.[1] || 1;
+  const words = Object.entries(counts).sort(([, a], [, b]) => b.count - a.count);
   if (words.length === 0) {
     return <p className="field-hint">Waiting for words to come in…</p>;
   }
   return (
     <ul className="wordcloud-list presenter-wordcloud" aria-label="Live word cloud">
-      {words.map(([word, count], index) => (
+      {words.map(([key, { label, count }], index) => (
         <li
           className="wordcloud-item"
-          key={word}
+          key={key}
           style={{
-            "--cloud-size": `${(0.9 + (count / largest) * 1.4).toFixed(2)}rem`,
-            "--cloud-tilt": `${((index * 17) % 13) - 6}deg`,
+            "--cloud-size": `${Math.min(3, 1.15 + Math.log2(count) * 0.45).toFixed(2)}rem`,
             "--cloud-tone": index % 5,
           }}
         >
-          <span className="wordcloud-word">{word}</span>
+          <span className="wordcloud-word">{label}</span>
           <span className="wordcloud-count">{count}</span>
         </li>
       ))}

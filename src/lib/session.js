@@ -41,7 +41,7 @@ export function newRoomCode() {
   return String(number);
 }
 
-export const APP_URL = "https://flypollo.netlify.app";
+export const APP_URL = "https://flygamify.netlify.app";
 
 export function sessionShareUrl(roomCode) {
   return `${APP_URL}?room=${encodeURIComponent(roomCode)}`;

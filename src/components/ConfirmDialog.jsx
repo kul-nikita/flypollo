@@ -35,10 +35,10 @@ export default function ConfirmDialog({
         className="modal"
         role="dialog"
         aria-modal="true"
-        aria-labelledby="flypollo-dialog-title"
+        aria-labelledby="flygamify-dialog-title"
         onClick={(event) => event.stopPropagation()}
       >
-        <h2 id="flypollo-dialog-title">{title}</h2>
+        <h2 id="flygamify-dialog-title">{title}</h2>
         {message && <p className="modal-message">{message}</p>}
         {points && points.length > 0 && (
           <ul className="modal-points">

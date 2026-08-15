@@ -97,7 +97,7 @@ export default function CreateSessionPage({ store, onNavigate }) {
       <header className="adb-page-head">
         <h1 className="adb-page-title">Create Session</h1>
         <p className="adb-page-sub">
-          Name a session, upload a transcript, and let FlyPollo draft the
+          Name a session, upload a transcript, and let FlyGamify draft the
           questions.
         </p>
       </header>
@@ -213,7 +213,7 @@ export default function CreateSessionPage({ store, onNavigate }) {
           <h2 className="adb-card-title">Upload a transcript</h2>
           <p className="adb-page-sub">
             {session?.sessionName ? `"${session.sessionName}" — ` : ""}
-            Drop a transcript and FlyPollo will draft{" "}
+            Drop a transcript and FlyGamify will draft{" "}
             {questionCount === 1 ? "one question" : `${questionCount} questions`}{" "}
             for you to review.
           </p>

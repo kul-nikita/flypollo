@@ -56,14 +56,14 @@ export default function Landing({ onEnter }) {
   return (
     <div className="landing">
       <section className="landing-hero">
-        <p className="landing-eyebrow">FlyPollo</p>
+        <p className="landing-eyebrow">FlyGamify</p>
         <h1>
           Make learning{" "}
           <span className="hero-accent">interactive.</span>
         </h1>
         <p className="landing-sub">
           Run live questions with your audience and see the results the moment
-          they answer. FlyPollo turns any session into a real-time
+          they answer. FlyGamify turns any session into a real-time
           conversation.
         </p>
         <form className="entry-form" onSubmit={handleSubmit}>

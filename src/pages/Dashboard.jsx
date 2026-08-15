@@ -263,7 +263,14 @@ export default function Dashboard({
     return () => {
       cancelled = true;
     };
-  }, [live.questionIndex, live.status, liveSessionId, profile, questions.length]);
+  }, [
+    live.questionIndex,
+    live.questionShownAt,
+    live.status,
+    liveSessionId,
+    profile,
+    questions.length,
+  ]);
 
   useEffect(() => {
     if (!configured || !db || !profile?.participantId) {
@@ -348,7 +355,7 @@ export default function Dashboard({
     setScanning(false);
     const code = extractRoomCode(raw);
     if (!code) {
-      showToast("That QR doesn't look like a FlyPollo room code.", "error");
+      showToast("That QR doesn't look like a FlyGamify room code.", "error");
       return;
     }
     setRoomCode(code);
@@ -594,6 +601,14 @@ export default function Dashboard({
         <button
           type="button"
           className="btn btn-ghost dashboard-signout"
+          onClick={handleLeaveSession}
+        >
+          Leave room
+        </button>
+
+        <button
+          type="button"
+          className="btn btn-ghost dashboard-signout"
           onClick={() => setConfirmSignOut(true)}
         >
           Sign out
@@ -721,6 +736,15 @@ export default function Dashboard({
               <p className="waiting-hint">
                 Waiting for the presenter to start…
               </p>
+              <div className="pdash-results-actions">
+                <button
+                  type="button"
+                  className="btn btn-ghost btn-block"
+                  onClick={handleLeaveSession}
+                >
+                  Leave room
+                </button>
+              </div>
             </div>
           )}
 

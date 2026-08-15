@@ -174,7 +174,7 @@ export default function AnalyticsPage({ sessionId, sessions, onSelectSession, on
       label: "Participants CSV",
       run: () =>
         downloadTextFile(
-          `flypollo-participants-${base}.csv`,
+          `flygamify-participants-${base}.csv`,
           participantsCsv(data.rows)
         ),
     },
@@ -183,7 +183,7 @@ export default function AnalyticsPage({ sessionId, sessions, onSelectSession, on
       label: "Answers CSV",
       run: () =>
         downloadTextFile(
-          `flypollo-answers-${base}.csv`,
+          `flygamify-answers-${base}.csv`,
           answersCsv(data.questions, data.answers, data.rows)
         ),
     },
@@ -192,7 +192,7 @@ export default function AnalyticsPage({ sessionId, sessions, onSelectSession, on
       label: "Analytics JSON",
       run: () =>
         downloadTextFile(
-          `flypollo-analytics-${base}.json`,
+          `flygamify-analytics-${base}.json`,
           sessionAnalyticsJson(data),
           "application/json"
         ),

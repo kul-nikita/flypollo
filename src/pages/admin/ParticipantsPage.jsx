@@ -39,7 +39,7 @@ export default function ParticipantsPage() {
 
   function exportCsv() {
     downloadTextFile(
-      `flypollo-participants-${new Date().toISOString().slice(0, 10)}.csv`,
+      `flygamify-participants-${new Date().toISOString().slice(0, 10)}.csv`,
       participantStatsCsv(filtered)
     );
   }

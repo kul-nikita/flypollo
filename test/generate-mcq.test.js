@@ -23,7 +23,7 @@ afterEach(() => {
 });
 
 function postEvent(body) {
-  return new Request("https://flypollo.netlify.app/.netlify/functions/generate-mcq", {
+  return new Request("https://flygamify.netlify.app/.netlify/functions/generate-mcq", {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: typeof body === "string" ? body : JSON.stringify(body),
@@ -538,7 +538,7 @@ describe("generate-mcq.js", () => {
 
   test("responds to CORS preflight (OPTIONS)", async () => {
     const res = await invoke(
-      new Request("https://flypollo.netlify.app/.netlify/functions/generate-mcq", {
+      new Request("https://flygamify.netlify.app/.netlify/functions/generate-mcq", {
         method: "OPTIONS",
       })
     );
@@ -549,7 +549,7 @@ describe("generate-mcq.js", () => {
 
   test("rejects non-POST methods with 405", async () => {
     const res = await invoke(
-      new Request("https://flypollo.netlify.app/.netlify/functions/generate-mcq", {
+      new Request("https://flygamify.netlify.app/.netlify/functions/generate-mcq", {
         method: "GET",
       })
     );

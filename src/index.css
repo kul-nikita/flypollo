@@ -1359,6 +1359,21 @@ textarea {
   gap: 0.4rem;
 }
 
+.presenter-wordcloud {
+  min-height: 15rem;
+  display: flex;
+  flex-flow: row wrap;
+  align-content: center;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem 0.9rem;
+  padding: 1.25rem;
+  overflow: hidden;
+  background: radial-gradient(circle at 50% 45%, var(--brand-soft), var(--surface));
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+
 .wordcloud-item {
   display: flex;
   align-items: center;
@@ -1368,6 +1383,35 @@ textarea {
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: var(--radius);
+}
+
+.presenter-wordcloud .wordcloud-item {
+  display: block;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: hsl(calc(218 + var(--cloud-tone) * 28) 68% 40%);
+  font-size: var(--cloud-size);
+  font-weight: 800;
+  line-height: 1.05;
+  transform: rotate(var(--cloud-tilt));
+  transition: transform 0.2s ease;
+}
+
+.presenter-wordcloud .wordcloud-item:nth-child(3n) {
+  color: #db2777;
+}
+
+.presenter-wordcloud .wordcloud-item:nth-child(4n) {
+  color: #0891b2;
+}
+
+.presenter-wordcloud .wordcloud-item:hover {
+  transform: rotate(0) scale(1.08);
+}
+
+.presenter-wordcloud .wordcloud-count {
+  display: none;
 }
 
 .wordcloud-word {
@@ -1392,6 +1436,33 @@ textarea {
   margin-top: 1.25rem;
   padding-top: 1.25rem;
   border-top: 1px solid var(--border);
+}
+
+.live-reactions {
+  display: none;
+}
+
+.reaction-burst-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  pointer-events: none;
+  overflow: hidden;
+}
+
+.reaction-burst {
+  position: absolute;
+  left: var(--reaction-left);
+  bottom: 1.25rem;
+  font-size: clamp(2rem, 4vw, 3.7rem);
+  filter: drop-shadow(0 5px 6px rgba(15, 23, 42, 0.2));
+  animation: reaction-float 3.5s ease-out forwards;
+}
+
+@keyframes reaction-float {
+  0% { opacity: 0; transform: translate(-45%, 0) scale(0.55) rotate(-12deg); }
+  12% { opacity: 1; transform: translate(-45%, -1.2rem) scale(1.1) rotate(5deg); }
+  100% { opacity: 0; transform: translate(calc(-45% + 4rem), -62vh) scale(0.8) rotate(18deg); }
 }
 
 .reaction-summary {

@@ -694,7 +694,7 @@ export function useAdminStore(adminEmail) {
         );
         setSession((s) => (s ? { ...s, status: "live" } : s));
       }
-      writeLive({ questionIndex: 0, status: "live", questionShownAt: Date.now() });
+      await writeLive({ questionIndex: 0, status: "live", questionShownAt: Date.now() });
       showToast("Quiz is live.", "success");
     } catch (err) {
       setError(err.message);

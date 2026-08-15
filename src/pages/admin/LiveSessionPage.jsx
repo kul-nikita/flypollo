@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, useRef, useState } from "react";
 import StatusChip from "../../components/StatusChip";
 import { formatDate } from "../../lib/session";
 import { copyText } from "../../lib/copy";
@@ -14,18 +14,63 @@ function WordCloudList({ entries }) {
     counts[word] = (counts[word] || 0) + 1;
   }
   const words = Object.entries(counts).sort((a, b) => b[1] - a[1]);
+  const largest = words[0]?.[1] || 1;
   if (words.length === 0) {
     return <p className="field-hint">Waiting for words to come in…</p>;
   }
   return (
-    <ul className="wordcloud-list">
-      {words.map(([word, count]) => (
-        <li className="wordcloud-item" key={word}>
+    <ul className="wordcloud-list presenter-wordcloud" aria-label="Live word cloud">
+      {words.map(([word, count], index) => (
+        <li
+          className="wordcloud-item"
+          key={word}
+          style={{
+            "--cloud-size": `${(0.9 + (count / largest) * 1.4).toFixed(2)}rem`,
+            "--cloud-tilt": `${((index * 17) % 13) - 6}deg`,
+            "--cloud-tone": index % 5,
+          }}
+        >
           <span className="wordcloud-word">{word}</span>
           <span className="wordcloud-count">{count}</span>
         </li>
       ))}
     </ul>
+  );
+}
+
+function ReactionBurstOverlay({ reactions }) {
+  const [bursts, setBursts] = useState([]);
+  const seenRef = useRef(new Set());
+
+  useEffect(() => {
+    const fresh = Object.entries(reactions || {}).flatMap(([participantId, reaction], index) => {
+      if (!reaction?.emoji || !Number.isFinite(reaction.at)) return [];
+      const id = `${participantId}:${reaction.at}`;
+      if (seenRef.current.has(id) || Date.now() - reaction.at > 12000) return [];
+      seenRef.current.add(id);
+      return [{ id, emoji: reaction.emoji, left: 8 + ((index * 17 + reaction.at) % 68) }];
+    });
+    if (fresh.length === 0) return undefined;
+    setBursts((current) => [...current, ...fresh]);
+    const timer = setTimeout(() => {
+      setBursts((current) => current.filter((burst) => !fresh.some((item) => item.id === burst.id)));
+    }, 3600);
+    return () => clearTimeout(timer);
+  }, [reactions]);
+
+  if (bursts.length === 0) return null;
+  return (
+    <div className="reaction-burst-overlay" aria-live="polite" aria-label="Audience reactions">
+      {bursts.map((burst) => (
+        <span
+          className="reaction-burst"
+          key={burst.id}
+          style={{ "--reaction-left": `${burst.left}%` }}
+        >
+          {burst.emoji}
+        </span>
+      ))}
+    </div>
   );
 }
 
@@ -126,6 +171,7 @@ export default function LiveSessionPage({ store, onNavigate }) {
 
   return (
     <div className="adb-page">
+      <ReactionBurstOverlay reactions={reactions} />
       <header className="adb-page-head">
         <div>
           <h1 className="adb-page-title">Live Session</h1>

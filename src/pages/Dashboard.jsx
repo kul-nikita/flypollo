@@ -461,17 +461,17 @@ export default function Dashboard({
   useEffect(() => {
     const hasTimer = currentQuestion?.timerSeconds > 0;
     const shownAt = Number(live.questionShownAt) || 0;
-    const expiresAt = shownAt + currentQuestion.timerSeconds * 1000;
     if (
       !hasTimer ||
       !shownAt ||
       remaining > 0 ||
       locked ||
-      live.status !== "live" ||
-      Date.now() < expiresAt
+      live.status !== "live"
     ) {
       return;
     }
+    const expiresAt = shownAt + currentQuestion.timerSeconds * 1000;
+    if (Date.now() < expiresAt) return;
     setTimedOut(true);
   }, [
     remaining,

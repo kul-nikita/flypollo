@@ -31,6 +31,7 @@ export default function CreateSessionPage({ store, onNavigate }) {
     sessions,
     createSession,
     handleFile,
+    startManualAuthoring,
     generate,
     updateQuestion,
     updateOption,
@@ -237,13 +238,13 @@ export default function CreateSessionPage({ store, onNavigate }) {
             </fieldset>
             <label className="field default-timer-field">
               <span className="field-label">
-                Default timer (seconds, 0 = no timer)
+                Default timer (seconds; leave blank for no timer)
               </span>
               <input
                 type="number"
                 min={0}
                 max={300}
-                value={defaultTimerSeconds}
+                value={defaultTimerSeconds || ""}
                 onChange={(event) => setDefaultTimer(event.target.value)}
                 aria-label="Default timer for all questions"
               />
@@ -280,6 +281,19 @@ export default function CreateSessionPage({ store, onNavigate }) {
                 : `Generate ${questionCount} questions`}
             </button>
           </form>
+          <div className="manual-authoring-choice">
+            <span>or</span>
+            <button
+              type="button"
+              className="btn btn-secondary btn-lg"
+              onClick={startManualAuthoring}
+            >
+              Create questions manually
+            </button>
+            <p className="field-hint">
+              Start with an MCQ, then add or switch questions to polls and word clouds.
+            </p>
+          </div>
         </div>
       )}
 
@@ -316,13 +330,13 @@ export default function CreateSessionPage({ store, onNavigate }) {
           <div className="adb-card default-timer-card">
             <label className="field default-timer-field">
               <span className="field-label">
-                Default timer (seconds, 0 = no timer)
+                Default timer (seconds; leave blank for no timer)
               </span>
               <input
                 type="number"
                 min={0}
                 max={300}
-                value={defaultTimerSeconds}
+                value={defaultTimerSeconds || ""}
                 onChange={(event) => setDefaultTimer(event.target.value)}
                 aria-label="Default timer for all questions"
               />

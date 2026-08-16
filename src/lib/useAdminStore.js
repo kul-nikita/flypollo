@@ -420,6 +420,15 @@ export function useAdminStore(adminEmail) {
     setError("");
   }
 
+  function startManualAuthoring() {
+    setQuestions([
+      { ...emptyQuestion("mcq"), timerSeconds: defaultTimerSeconds },
+    ]);
+    setFile(null);
+    setError("");
+    showToast("Start with your first question. You can switch it to a poll or word cloud.", "success");
+  }
+
   async function generate(event) {
     event.preventDefault();
     if (generateLockRef.current) return;
@@ -1000,6 +1009,7 @@ export function useAdminStore(adminEmail) {
     newSession,
     createSession,
     handleFile,
+    startManualAuthoring,
     generate,
     updateQuestion,
     updateOption,

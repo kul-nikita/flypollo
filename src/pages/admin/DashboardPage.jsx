@@ -7,7 +7,11 @@ function responsesFor(session) {
 }
 
 export default function DashboardPage({ store, onNavigate }) {
-  const { sessions, loading } = store;
+  const { sessions, loading, newSession } = store;
+  function beginNewSession() {
+    newSession();
+    onNavigate("create");
+  }
   const today = todayLocal();
   const todayList = sessions.filter((s) => s.sessionDate === today);
   const todaySession =
@@ -127,7 +131,7 @@ export default function DashboardPage({ store, onNavigate }) {
               <button
                 type="button"
                 className="btn btn-primary"
-                onClick={() => onNavigate("create")}
+                onClick={beginNewSession}
               >
                 Create a session
               </button>
@@ -141,7 +145,7 @@ export default function DashboardPage({ store, onNavigate }) {
             <button
               type="button"
               className="adb-quick-item"
-              onClick={() => onNavigate("create")}
+              onClick={beginNewSession}
             >
               <span className="adb-quick-icon" aria-hidden="true">
                 ➕

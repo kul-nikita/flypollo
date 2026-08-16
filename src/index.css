@@ -1290,6 +1290,27 @@ textarea {
   align-self: stretch;
 }
 
+.manual-authoring-choice {
+  display: grid;
+  justify-items: center;
+  gap: 0.65rem;
+  margin-top: 1.5rem;
+  padding-top: 1.5rem;
+  border-top: 1px solid var(--border);
+  text-align: center;
+}
+
+.manual-authoring-choice > span {
+  color: var(--muted);
+  font-size: 0.85rem;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.manual-authoring-choice .field-hint {
+  margin: 0;
+}
+
 .reactions {
   position: fixed;
   left: 1rem;

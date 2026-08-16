@@ -460,9 +460,26 @@ export default function Dashboard({
 
   useEffect(() => {
     const hasTimer = currentQuestion?.timerSeconds > 0;
-    if (!hasTimer || remaining > 0 || locked || live.status !== "live") return;
+    const shownAt = Number(live.questionShownAt) || 0;
+    const expiresAt = shownAt + currentQuestion.timerSeconds * 1000;
+    if (
+      !hasTimer ||
+      !shownAt ||
+      remaining > 0 ||
+      locked ||
+      live.status !== "live" ||
+      Date.now() < expiresAt
+    ) {
+      return;
+    }
     setTimedOut(true);
-  }, [remaining, locked, live.status, currentQuestion?.timerSeconds]);
+  }, [
+    remaining,
+    locked,
+    live.status,
+    live.questionShownAt,
+    currentQuestion?.timerSeconds,
+  ]);
 
   const answeredCount = Object.keys(submitted).length;
   const firstName = (profile.name || "").split(" ")[0] || profile.name;

@@ -16,7 +16,10 @@
         },
         "reactions": {
           ".read": true,
-          ".write": "newData.val() == null || (newData.hasChildren(['emoji', 'at']) && newData.child('emoji').isString() && newData.child('at').isNumber())"
+          ".write": "newData.val() == null",
+          "$participantId": {
+            ".write": "newData.hasChildren(['emoji', 'at']) && newData.child('emoji').isString() && newData.child('at').isNumber()"
+          }
         }
       }
     }
